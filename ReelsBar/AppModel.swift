@@ -41,8 +41,8 @@ final class AppModel {
         runJS("window.__reelsbar && window.__reelsbar.togglePlay()")
     }
 
-    func like() {
-        runJS("window.__reelsbar && window.__reelsbar.like()")
+    func handleLikeKey() {
+        runJS("window.__reelsbar && window.__reelsbar.handleLikeKey()")
     }
 
     func toggleAutoScroll() {
@@ -84,46 +84,6 @@ final class AppModel {
         runJS("window.__reelsbar && window.__reelsbar.setMuted(true)")
     }
 
-    // MARK: - Lifecycle
-
-    private var lifecycleObservers: [NSObjectProtocol] = []
-
-    func startLifecycleObservation() {
-        let center = NotificationCenter.default
-
-        lifecycleObservers.append(center.addObserver(
-            forName: NSApplication.didResignActiveNotification, object: nil, queue: .main
-        ) { [weak self] _ in
-            Task { @MainActor in self?.handlePanelDeactivated() }
-        })
-
-        lifecycleObservers.append(center.addObserver(
-            forName: NSApplication.didBecomeActiveNotification, object: nil, queue: .main
-        ) { [weak self] _ in
-            Task { @MainActor in self?.handlePanelActivated() }
-        })
-
-        lifecycleObservers.append(center.addObserver(
-            forName: NSWindow.didBecomeKeyNotification, object: nil, queue: .main
-        ) { [weak self] note in
-            Task { @MainActor in
-                guard let self, let keyWindow = note.object as? NSWindow,
-                      keyWindow === self.webView?.window else { return }
-                self.handlePanelActivated()
-            }
-        })
-
-        lifecycleObservers.append(center.addObserver(
-            forName: NSWindow.didResignKeyNotification, object: nil, queue: .main
-        ) { [weak self] note in
-            Task { @MainActor in
-                guard let self, let keyWindow = note.object as? NSWindow,
-                      keyWindow === self.webView?.window else { return }
-                self.handlePanelDeactivated()
-            }
-        })
-    }
-
     /// Pause playback, silence audio, and suspend background work while hidden.
     func handlePanelDeactivated() {
         guard isPanelActive else { return }
@@ -137,7 +97,7 @@ final class AppModel {
 
     /// Restore readiness and the user's prior mute choice when visible again.
     func handlePanelActivated() {
-        guard !isPanelActive, webView != nil, NSApp.isActive else { return }
+        guard !isPanelActive else { return }
         isPanelActive = true
         print("[ReelsBar] panel activated")
         runJS("window.__reelsbar && (window.__reelsbar.setMuted(\(isMuted)), window.__reelsbar.resumeActive())")
@@ -187,9 +147,19 @@ final class AppModel {
                     guard !editing else { return event }
                     self.togglePlay()
                     return nil
-                case 46: if !editing { self.toggleMute() }        // M
-                case 0:  if !editing { self.toggleAutoScroll() }  // A
-                case 37: if !editing { self.like() }              // L
+                case 46: // M
+                    guard !editing else { return event }
+                    self.toggleMute()
+                    return nil
+                case 0: // A
+                    guard !editing else { return event }
+                    self.toggleAutoScroll()
+                    return nil
+                case 37: // L
+                    guard !editing else { return event }
+                    guard !event.isARepeat else { return nil }
+                    self.handleLikeKey()
+                    return nil
                 default: break
                 }
                 return event
@@ -197,33 +167,7 @@ final class AppModel {
         }
     }
 
-    // MARK: - Global hotkey (⌘⇧R) panel toggle
-
-    private var hotkeyManager: HotkeyManager?
-
-    func startGlobalHotkey() {
-        guard hotkeyManager == nil else { return }
-        hotkeyManager = HotkeyManager { [weak self] in
-            Task { @MainActor in self?.togglePanelFromHotkey() }
-        }
-        hotkeyManager?.register()
-    }
-
-    func togglePanelFromHotkey() {
-        if let window = webView?.window, window.isVisible {
-            window.orderOut(nil)
-            handlePanelDeactivated()
-        } else {
-            NSApp.activate(ignoringOtherApps: true)
-            // MenuBarExtra's status item window hosts the toggle button.
-            let statusButton = NSApp.windows
-                .first { String(describing: type(of: $0)).contains("NSStatusBarWindow") }?
-                .contentView?.subviews.compactMap { $0 as? NSStatusBarButton }.first
-            statusButton?.performClick(nil)
-        }
-    }
-
-    // MARK: - Auto-scroll timer suspension hook (engine wired in Phase 8)
+    // MARK: - Auto-scroll timer
 
     var autoScrollTimer: Timer?
 

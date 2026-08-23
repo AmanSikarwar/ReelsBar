@@ -16,13 +16,20 @@ final class HotkeyManager {
         unregister()
     }
 
-    func register() {
-        guard hotKeyRef == nil else { return }
+    @discardableResult
+    func register() -> Bool {
+        guard hotKeyRef == nil else { return true }
 
-        var hotKeyID = EventHotKeyID(signature: OSType(0x52424152), id: 1) // 'RBAR'
+        let hotKeyID = EventHotKeyID(signature: OSType(0x52424152), id: 1) // 'RBAR'
         let modifiers = UInt32(cmdKey | shiftKey)
-        RegisterEventHotKey(UInt32(kVK_ANSI_R), modifiers, hotKeyID,
-                            GetApplicationEventTarget(), 0, &hotKeyRef)
+        let registrationStatus = RegisterEventHotKey(
+            UInt32(kVK_ANSI_R), modifiers, hotKeyID,
+            GetApplicationEventTarget(), 0, &hotKeyRef
+        )
+        guard registrationStatus == noErr else {
+            print("[ReelsBar] global hotkey registration failed: \(registrationStatus)")
+            return false
+        }
 
         var eventType = EventTypeSpec(eventClass: OSType(kEventClassKeyboard),
                                       eventKind: UInt32(kEventHotKeyPressed))
@@ -31,8 +38,16 @@ final class HotkeyManager {
             let manager = Unmanaged<HotkeyManager>.fromOpaque(userData).takeUnretainedValue()
             return manager.handleHotKeyEvent(event)
         }
-        InstallEventHandler(GetApplicationEventTarget(), handler, 1, &eventType,
-                            Unmanaged.passUnretained(self).toOpaque(), &eventHandler)
+        let handlerStatus = InstallEventHandler(
+            GetApplicationEventTarget(), handler, 1, &eventType,
+            Unmanaged.passUnretained(self).toOpaque(), &eventHandler
+        )
+        guard handlerStatus == noErr else {
+            unregister()
+            print("[ReelsBar] global hotkey handler failed: \(handlerStatus)")
+            return false
+        }
+        return true
     }
 
     private func handleHotKeyEvent(_ event: EventRef?) -> OSStatus {

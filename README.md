@@ -4,7 +4,7 @@ A lightweight macOS menu bar app for browsing Instagram Reels in a mobile-sized 
 
 ## Features
 
-- **Menu bar popover** — `MenuBarExtra` (window style) anchored to a status item; fixed mobile viewport of 375 × 667.
+- **Menu bar popover** — native `NSStatusItem` and `NSPopover`; fixed mobile viewport of 375 × 667.
 - **Mobile web view** — WKWebView loading `instagram.com/reels` with an iPhone Safari User-Agent, so Instagram serves its vertical mobile interface.
 - **Clean feed** — injected CSS strips Instagram's headers, navigation bars, footers, and app-download banners so the video fills 100% of the panel.
 - **Muted by default** — playback always starts silent (including after reloads and SPA navigations); toggle audio from the panel's speaker button or the `M` key. The state survives hide/show cycles.
@@ -22,7 +22,7 @@ A lightweight macOS menu bar app for browsing Instagram Reels in a mobile-sized 
 | Space | Panel | Play / pause current video |
 | M | Panel | Mute / unmute |
 | A | Panel | Toggle auto-scroll |
-| L | Panel | Like the active reel |
+| L, L | Panel | Like the active reel; press L again to unlike |
 
 ## Getting started
 
@@ -54,8 +54,9 @@ open ~/Library/Developer/Xcode/DerivedData/ReelsBar-*/Build/Products/Debug/Reels
 
 | File | Role |
 | --- | --- |
-| `ReelsBar/ReelsBarApp.swift` | App entry: `MenuBarExtra` scene, wires observers/hotkeys into `AppModel`. |
-| `ReelsBar/AppModel.swift` | Central `@Observable` state: mute, auto-scroll, panel lifecycle, keyboard actions, Carbon hotkey toggle, fallback timer. |
+| `ReelsBar/ReelsBarApp.swift` | App entry: installs the AppKit delegate for the agent app. |
+| `ReelsBar/AppDelegate.swift` | Owns the status item, popover, global hotkey, and panel lifecycle. |
+| `ReelsBar/AppModel.swift` | Central `@Observable` state: mute, auto-scroll, local keyboard actions, and fallback timer. |
 | `ReelsBar/ReelsBarPanel.swift` | The 375×667 panel: web view plus overlay controls (mute button, auto-scroll badge). |
 | `ReelsBar/ReelsWebView.swift` | `NSViewRepresentable` WKWebView: iPhone UA, Reels URL, navigation delegate, script-message handler. |
 | `ReelsBar/ReelsUserScript.swift` | Injected JavaScript/CSS: DOM cleanup, `window.__reelsbar` bridge (mute, scroll, play, like, ended events). |
@@ -72,5 +73,5 @@ The native ↔ web boundary is the `window.__reelsbar` bridge: native code calls
 ## Known limitations
 
 - Instagram's DOM is undocumented and changes frequently. The CSS selectors, the like-button lookup, and the feed-scroller heuristics in `ReelsUserScript.swift` are best-effort and may need retuning if Instagram updates its web client.
-- The like action (`L`) simulates a click on the visible reel's Like button; it can't bypass Instagram's login walls or bot detection.
+- The like action (`L`, `L`) simulates a click on the visible reel's Like button; press `L` again to unlike. It can't bypass Instagram's login walls or bot detection.
 - WKWebView blocks unmuted autoplay, which is why playback always starts silent — this doubles as the mute-by-default policy.

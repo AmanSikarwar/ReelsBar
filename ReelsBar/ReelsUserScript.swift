@@ -51,17 +51,6 @@ enum ReelsUserScript {
         object-fit: contain !important;
     }
 
-    /* Reel-by-reel paging: the feed scroller snaps to each reel boundary.
-       Snap areas can live at any depth, so cover both the div-scroller case
-       (direct children are reels) and the document-scroller case (articles). */
-    .reelsbar-snap {
-        scroll-snap-type: y mandatory !important;
-    }
-    .reelsbar-snap > *,
-    .reelsbar-snap article {
-        scroll-snap-align: start !important;
-        scroll-snap-stop: always !important;
-    }
     """
 
     static func inject(into contentController: WKUserContentController) {
@@ -104,11 +93,7 @@ enum ReelsUserScript {
                 },
                 resumeActive() {
                     // Resume only the video currently filling the viewport.
-                    const videos = [...document.querySelectorAll('video')];
-                    const visible = videos.find(v => {
-                        const r = v.getBoundingClientRect();
-                        return r.height > 0 && r.bottom > window.innerHeight * 0.5 && r.top < window.innerHeight * 0.5;
-                    });
+                    const visible = this._activeVideo();
                     if (visible) visible.play().catch(() => {});
                 },
                 isEditing() {
@@ -116,69 +101,74 @@ enum ReelsUserScript {
                     return !!el && (el.tagName === 'INPUT' || el.tagName === 'TEXTAREA' || el.isContentEditable);
                 },
                 togglePlay() {
-                    const videos = [...document.querySelectorAll('video')];
-                    const visible = videos.find(v => v.getBoundingClientRect().height > 0);
-                    console.log('[reelsbar] togglePlay, videos:', videos.length, 'visible:', !!visible);
+                    const visible = this._activeVideo();
+                    console.log('[reelsbar] togglePlay, visible:', !!visible);
                     if (!visible) return;
                     if (visible.paused) visible.play().catch(() => {}); else visible.pause();
                 },
                 scrollNext() {
-                    this._scrollFeed(window.innerHeight);
+                    this._scrollFeed(1);
                 },
                 scrollPrev() {
-                    this._scrollFeed(-window.innerHeight);
+                    this._scrollFeed(-1);
                 },
-                _feedEl: null,
-                _feed() {
-                    if (this._feedEl && this._feedEl.isConnected
-                        && this._feedEl.scrollHeight > this._feedEl.clientHeight) {
-                        return this._feedEl;
-                    }
-                    // Prefer a real scrolling div that fills most of the viewport…
-                    this._feedEl = [...document.querySelectorAll('div')]
-                        .filter(d => d.scrollHeight > d.clientHeight + 10
-                                     && d.clientHeight > window.innerHeight * 0.5)
-                        .sort((a, b) => b.clientHeight - a.clientHeight)[0]
-                        // …else fall back to the document scroller itself.
-                        || (document.scrollingElement
-                            && document.scrollingElement.scrollHeight > window.innerHeight + 10
-                            ? document.scrollingElement : null);
-                    if (this._feedEl) this._feedEl.classList.add('reelsbar-snap');
-                    console.log('[reelsbar] feed:', this._feedEl ? this._feedEl.tagName : 'none');
-                    return this._feedEl;
+                _videos() {
+                    return [...document.querySelectorAll('video')]
+                        .filter(v => v.getBoundingClientRect().height > 0)
+                        .sort((a, b) => a.getBoundingClientRect().top - b.getBoundingClientRect().top);
                 },
-                _currentItem(feed) {
-                    // Climb from the viewport center (or visible video) to a
-                    // direct child of the feed — that child is one reel.
-                    let node = document.elementFromPoint(window.innerWidth / 2, window.innerHeight / 2);
-                    if (!node || node.parentElement !== feed) {
-                        if (!node) {
-                            const video = [...document.querySelectorAll('video')]
-                                .find(v => v.getBoundingClientRect().height > 0);
-                            node = video;
+                _activeVideo(videos = this._videos()) {
+                    let active = null;
+                    let visibleHeight = 0;
+                    videos.forEach(video => {
+                        const rect = video.getBoundingClientRect();
+                        const height = Math.max(0,
+                            Math.min(rect.bottom, window.innerHeight) - Math.max(rect.top, 0));
+                        if (height > visibleHeight) {
+                            active = video;
+                            visibleHeight = height;
                         }
-                        while (node && node.parentElement !== feed) node = node.parentElement;
-                    }
-                    return node && node.parentElement === feed ? node : null;
+                    });
+                    return active;
                 },
-                _scrollFeed(delta) {
-                    const feed = this._feed();
-                    if (!feed) return;
-                    const item = this._currentItem(feed);
-                    const target = item
-                        ? (delta > 0 ? item.nextElementSibling : item.previousElementSibling)
-                        : null;
-                    if (target) {
-                        // Land exactly on the next reel's top edge.
-                        const top = target.getBoundingClientRect().top
-                                  - feed.getBoundingClientRect().top + feed.scrollTop;
-                        feed.scrollTo({ top, behavior: 'smooth' });
-                    } else {
-                        feed.scrollBy({ top: delta, behavior: 'smooth' });
+                _scrollParent(element) {
+                    for (let parent = element?.parentElement; parent; parent = parent.parentElement) {
+                        const overflow = getComputedStyle(parent).overflowY;
+                        if (parent.scrollHeight > parent.clientHeight + 10
+                            && /auto|scroll|overlay/.test(overflow)) return parent;
                     }
-                    console.log('[reelsbar] scroll delta', delta,
-                                 'item', !!item, 'target', !!target,
-                                 'feedTop', Math.round(feed.scrollTop));
+                    return document.scrollingElement;
+                },
+                _scrollFeed(direction) {
+                    this._pendingLike = null;
+                    const videos = this._videos();
+                    const current = this._activeVideo(videos);
+                    if (!current) return;
+                    const currentCenter = current.getBoundingClientRect().top
+                        + current.getBoundingClientRect().height / 2;
+                    const target = videos
+                        .filter(video => {
+                            const rect = video.getBoundingClientRect();
+                            const center = rect.top + rect.height / 2;
+                            return direction > 0 ? center > currentCenter + 1 : center < currentCenter - 1;
+                        })
+                        .sort((a, b) => {
+                            const aRect = a.getBoundingClientRect();
+                            const bRect = b.getBoundingClientRect();
+                            const aDistance = Math.abs(aRect.top + aRect.height / 2 - currentCenter);
+                            const bDistance = Math.abs(bRect.top + bRect.height / 2 - currentCenter);
+                            return aDistance - bDistance;
+                        })[0];
+                    if (target) {
+                        target.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                    } else {
+                        const feed = this._scrollParent(current);
+                        feed?.scrollBy({
+                            top: direction * (feed.clientHeight || window.innerHeight),
+                            behavior: 'smooth'
+                        });
+                    }
+                    console.log('[reelsbar] scroll direction', direction, 'target', !!target);
                 },
                 // Snapshot of everything native debugging needs to know.
                 diag() {
@@ -190,14 +180,14 @@ enum ReelsUserScript {
                     const scrollers = [...document.querySelectorAll('div')]
                         .filter(d => d.scrollHeight > d.clientHeight + 10)
                         .slice(0, 5).map(info);
-                    const videos = [...document.querySelectorAll('video')];
-                    const visible = videos.find(v => v.getBoundingClientRect().height > 0);
+                    const videos = this._videos();
+                    const visible = this._activeVideo(videos);
                     return JSON.stringify({
                         url: location.href,
                         viewport: window.innerWidth + 'x' + window.innerHeight,
                         documentScroller: info(document.scrollingElement),
                         scrollerDivs: scrollers,
-                        chosenFeed: info(this._feedEl),
+                        chosenFeed: info(this._scrollParent(visible)),
                         articles: document.querySelectorAll('article').length,
                         videos: videos.length,
                         visibleVideo: visible ? {
@@ -207,20 +197,68 @@ enum ReelsUserScript {
                         } : null
                     });
                 },
-                like() {
-                    // Best-effort: click the "Like" button on the visible reel.
-                    const buttons = [...document.querySelectorAll('svg[aria-label], button')];
-                    const like = buttons.find(b => (b.getAttribute('aria-label') || '').toLowerCase() === 'like'
-                                                    || (b.closest('[role="button"]')?.getAttribute('aria-label') || '').toLowerCase() === 'like');
-                    (like?.closest('[role="button"]') || like)?.dispatchEvent(
-                        new MouseEvent('click', { bubbles: true, cancelable: true }));
+                _likeLabel(control) {
+                    if (!control) return '';
+                    const labeled = [control, ...control.querySelectorAll('[aria-label]')];
+                    return labeled
+                        .map(element => (element.getAttribute('aria-label') || '').trim().toLowerCase())
+                        .find(label => label === 'like' || label === 'unlike') || '';
+                },
+                _likeControl(video) {
+                    if (!video) return null;
+                    const videoRect = video.getBoundingClientRect();
+                    const videoCenter = videoRect.top + videoRect.height / 2;
+                    const controls = [...new Set(
+                        [...document.querySelectorAll('[aria-label]')]
+                            .filter(element => {
+                                const label = (element.getAttribute('aria-label') || '').trim().toLowerCase();
+                                return label === 'like' || label === 'unlike';
+                            })
+                            .map(element => element.closest('button, [role="button"]') || element)
+                    )].filter(control => {
+                        const rect = control.getBoundingClientRect();
+                        return rect.width > 0 && rect.height > 0;
+                    });
+                    return controls.sort((a, b) => {
+                        const aRect = a.getBoundingClientRect();
+                        const bRect = b.getBoundingClientRect();
+                        const aDistance = Math.abs(aRect.top + aRect.height / 2 - videoCenter);
+                        const bDistance = Math.abs(bRect.top + bRect.height / 2 - videoCenter);
+                        return aDistance - bDistance;
+                    })[0] || null;
+                },
+                _likeKeyAction(isLiked, sameVideo, elapsed) {
+                    if (isLiked) return 'unlike';
+                    if (sameVideo && elapsed >= 0 && elapsed <= 500) return 'like';
+                    return 'arm';
+                },
+                _pendingLike: null,
+                handleLikeKey() {
+                    const video = this._activeVideo();
+                    const control = this._likeControl(video);
+                    if (!video || !control) return 'missing';
+
+                    const now = performance.now();
+                    const pending = this._pendingLike;
+                    const action = this._likeKeyAction(
+                        this._likeLabel(control) === 'unlike',
+                        pending?.video === video,
+                        now - (pending?.at ?? now)
+                    );
+                    if (action === 'arm') {
+                        this._pendingLike = { video, at: now };
+                    } else {
+                        this._pendingLike = null;
+                        control.click();
+                    }
+                    console.log('[reelsbar] like key', action);
+                    return action;
                 },
                 // Keep newly-attached video elements in the current mute state.
                 observe() {
                     if (this._observer) return;
                     this._observer = new MutationObserver(() => {
                         this.applyMuted();
-                        if (!this._feedEl || !this._feedEl.isConnected) this._feed();
                     });
                     this._observer.observe(document.body, { childList: true, subtree: true });
                 },
@@ -233,7 +271,6 @@ enum ReelsUserScript {
             };
             window.__reelsbar.applyMuted();
             window.__reelsbar.observe();
-            window.__reelsbar._feed();
             window.__reelsbar.postEditing();
             // Track field focus so native keys never eat login-form typing.
             ['focusin', 'focusout'].forEach(t =>
@@ -253,6 +290,9 @@ enum ReelsUserScript {
                 const orig = console[k].bind(console);
                 console[k] = (...a) => { nativeLog(...a); orig(...a); };
             });
+            console.assert(window.__reelsbar._likeKeyAction(false, false, 0) === 'arm');
+            console.assert(window.__reelsbar._likeKeyAction(false, true, 250) === 'like');
+            console.assert(window.__reelsbar._likeKeyAction(true, false, 0) === 'unlike');
         })();
         """
         let script = WKUserScript(source: source, injectionTime: .atDocumentEnd, forMainFrameOnly: true)
