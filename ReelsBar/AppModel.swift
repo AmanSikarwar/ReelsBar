@@ -56,7 +56,35 @@ final class AppModel {
 
     func toggleAutoScroll() {
         isAutoScrollActive.toggle()
-        runJS("window.__reelsbar && window.__reelsbar.setAutoScroll && window.__reelsbar.setAutoScroll(\(isAutoScrollActive))")
+        runJS("window.__reelsbar && window.__reelsbar.setAutoScroll(\(isAutoScrollActive))")
+        if isAutoScrollActive {
+            armAutoScrollFallbackTimer()
+        } else {
+            suspendAutoScrollTimer()
+        }
+    }
+
+    // MARK: - Auto-scroll engine
+
+    /// How long without a native `ended` event before the fallback timer advances.
+    static let autoScrollFallbackInterval: TimeInterval = 120
+
+    private(set) var lastVideoEndedAt: Date?
+
+    func videoDidEnd() {
+        lastVideoEndedAt = Date()
+    }
+
+    private func armAutoScrollFallbackTimer() {
+        suspendAutoScrollTimer()
+        guard isPanelActive else { return }
+        autoScrollTimer = Timer.scheduledTimer(withTimeInterval: Self.autoScrollFallbackInterval, repeats: true) { [weak self] _ in
+            Task { @MainActor in
+                guard let self, self.isAutoScrollActive, self.isPanelActive else { return }
+                let stalled = self.lastVideoEndedAt.map { Date().timeIntervalSince($0) > Self.autoScrollFallbackInterval } ?? true
+                if stalled { self.scrollNext() }
+            }
+        }
     }
 
     /// Re-assert mute-by-default on every page load or reload.
@@ -184,7 +212,8 @@ final class AppModel {
     }
 
     func resumeAutoScrollTimer() {
-        // The `ended`-event engine handles advancement; the fallback timer
-        // is only armed by the auto-scroll toggle while the panel is active.
+        if isAutoScrollActive {
+            armAutoScrollFallbackTimer()
+        }
     }
 }

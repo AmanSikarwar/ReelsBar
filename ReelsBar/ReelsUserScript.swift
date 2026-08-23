@@ -67,6 +67,23 @@ enum ReelsUserScript {
                     return this.muted;
                 },
                 setMuted(m) { this.muted = !!m; return this.applyMuted(); },
+                _autoScroll: false,
+                setAutoScroll(on) {
+                    this._autoScroll = !!on;
+                    if (this._autoScroll) this._watchVideoEnds();
+                },
+                _watchVideoEnds() {
+                    if (this._endedHook) return;
+                    // 'ended' does not bubble, so listen in the capture phase.
+                    this._endedHook = (ev) => {
+                        if (!this._autoScroll || !(ev.target instanceof HTMLVideoElement)) return;
+                        try {
+                            window.webkit.messageHandlers.reelsbar.postMessage('videoEnded');
+                        } catch (e) {}
+                        this.scrollNext();
+                    };
+                    document.addEventListener('ended', this._endedHook, true);
+                },
                 pauseAll() {
                     document.querySelectorAll('video').forEach(v => v.pause());
                 },

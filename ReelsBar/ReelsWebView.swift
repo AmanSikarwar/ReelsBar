@@ -19,7 +19,9 @@ struct ReelsWebView: NSViewRepresentable {
     @Environment(AppModel.self) private var appModel
 
     func makeNSView(context: Context) -> WKWebView {
-        let webView = WKWebView(frame: .zero, configuration: ReelsWebViewFactory.makeConfiguration())
+        let config = ReelsWebViewFactory.makeConfiguration()
+        config.userContentController.add(context.coordinator, name: "reelsbar")
+        let webView = WKWebView(frame: .zero, configuration: config)
         webView.customUserAgent = ReelsWebViewFactory.iPhoneUserAgent
         webView.navigationDelegate = context.coordinator
         context.coordinator.appModel = appModel
@@ -36,12 +38,20 @@ struct ReelsWebView: NSViewRepresentable {
         Coordinator()
     }
 
-    final class Coordinator: NSObject, WKNavigationDelegate {
+    final class Coordinator: NSObject, WKNavigationDelegate, WKScriptMessageHandler {
         weak var appModel: AppModel?
 
         func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
             // Instagram is an SPA; enforce the audio policy after every navigation.
             appModel?.enforceDefaultAudioPolicy()
+        }
+
+        func userContentController(_ userContentController: WKUserContentController,
+                                   didReceive message: WKScriptMessage) {
+            guard message.name == "reelsbar", message.body as? String == "videoEnded" else { return }
+            Task { @MainActor in
+                self.appModel?.videoDidEnd()
+            }
         }
     }
 }
