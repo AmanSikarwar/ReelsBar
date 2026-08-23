@@ -119,52 +119,90 @@ final class AppModel {
         }
     }
 
-    // MARK: - Local keyboard monitoring (active window only)
+    // MARK: - Local input monitoring (active panel only)
 
     private var localKeyMonitor: Any?
+    private var localScrollMonitor: Any?
+    private var scrollGestureHandled = false
+    private var scrollGestureResetTask: Task<Void, Never>?
 
-    func startKeyboardMonitoring() {
-        guard localKeyMonitor == nil else { return }
-        localKeyMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] event in
-            MainActor.assumeIsolated {
-                guard let self, self.isPanelActive else { return event }
-                let flags = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
-                guard !flags.contains(.command), !flags.contains(.option), !flags.contains(.control) else { return event }
-                let editing = self.isPageEditing
-                if [0, 37, 46, 49, 125, 126].contains(event.keyCode) {
-                    print("[ReelsBar] key \(event.keyCode) editing=\(editing)")
+    func startInputMonitoring() {
+        if localKeyMonitor == nil {
+            localKeyMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] event in
+                MainActor.assumeIsolated {
+                    guard let self, self.isPanelActive else { return event }
+                    let flags = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
+                    guard !flags.contains(.command), !flags.contains(.option), !flags.contains(.control) else { return event }
+                    let editing = self.isPageEditing
+                    if [0, 37, 46, 49, 125, 126].contains(event.keyCode) {
+                        print("[ReelsBar] key \(event.keyCode) editing=\(editing)")
+                    }
+                    switch event.keyCode {
+                    case 125: // Down — next reel (swallow the page's line-scroll)
+                        guard !editing else { return event }
+                        self.scrollNext()
+                        return nil
+                    case 126: // Up — previous reel
+                        guard !editing else { return event }
+                        self.scrollPrev()
+                        return nil
+                    case 49: // Space — play/pause (swallow the page's space-scroll)
+                        guard !editing else { return event }
+                        self.togglePlay()
+                        return nil
+                    case 46: // M
+                        guard !editing else { return event }
+                        self.toggleMute()
+                        return nil
+                    case 0: // A
+                        guard !editing else { return event }
+                        self.toggleAutoScroll()
+                        return nil
+                    case 37: // L
+                        guard !editing else { return event }
+                        guard !event.isARepeat else { return nil }
+                        self.handleLikeKey()
+                        return nil
+                    default: break
+                    }
+                    return event
                 }
-                switch event.keyCode {
-                case 125: // Down — next reel (swallow the page's line-scroll)
-                    guard !editing else { return event }
-                    self.scrollNext()
-                    return nil
-                case 126: // Up — previous reel
-                    guard !editing else { return event }
-                    self.scrollPrev()
-                    return nil
-                case 49: // Space — play/pause (swallow the page's space-scroll)
-                    guard !editing else { return event }
-                    self.togglePlay()
-                    return nil
-                case 46: // M
-                    guard !editing else { return event }
-                    self.toggleMute()
-                    return nil
-                case 0: // A
-                    guard !editing else { return event }
-                    self.toggleAutoScroll()
-                    return nil
-                case 37: // L
-                    guard !editing else { return event }
-                    guard !event.isARepeat else { return nil }
-                    self.handleLikeKey()
-                    return nil
-                default: break
-                }
-                return event
             }
         }
+        if localScrollMonitor == nil {
+            assert(Self.scrollDirection(deltaX: 0, deltaY: -1) == 1)
+            assert(Self.scrollDirection(deltaX: 0, deltaY: 1) == -1)
+            localScrollMonitor = NSEvent.addLocalMonitorForEvents(matching: .scrollWheel) { [weak self] event in
+                MainActor.assumeIsolated {
+                    self?.handleScrollWheel(event) ?? event
+                }
+            }
+        }
+    }
+
+    private static func scrollDirection(deltaX: Double, deltaY: Double) -> Int? {
+        guard abs(deltaY) >= 0.1, abs(deltaY) > abs(deltaX) else { return nil }
+        return deltaY < 0 ? 1 : -1
+    }
+
+    private func handleScrollWheel(_ event: NSEvent) -> NSEvent? {
+        guard isPanelActive else { return event }
+        guard let direction = Self.scrollDirection(
+            deltaX: event.scrollingDeltaX,
+            deltaY: event.scrollingDeltaY
+        ) else { return event }
+
+        if !scrollGestureHandled {
+            scrollGestureHandled = true
+            direction > 0 ? scrollNext() : scrollPrev()
+        }
+        scrollGestureResetTask?.cancel()
+        scrollGestureResetTask = Task { [weak self] in
+            try? await Task.sleep(for: .milliseconds(200))
+            guard !Task.isCancelled else { return }
+            self?.scrollGestureHandled = false
+        }
+        return nil
     }
 
     // MARK: - Auto-scroll timer

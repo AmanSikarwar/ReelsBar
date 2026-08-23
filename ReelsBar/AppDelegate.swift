@@ -27,7 +27,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
         )
         popover.delegate = self
 
-        appModel.startKeyboardMonitoring()
+        appModel.startInputMonitoring()
         hotkeyManager = HotkeyManager { [weak self] in
             self?.togglePopover()
         }
