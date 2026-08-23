@@ -124,7 +124,9 @@ final class AppModel {
     private var localKeyMonitor: Any?
     private var localScrollMonitor: Any?
     private var scrollGestureHandled = false
+    private var accumulatedScrollDeltaY = 0.0
     private var scrollGestureResetTask: Task<Void, Never>?
+    private static let preciseScrollThreshold = 24.0
 
     func startInputMonitoring() {
         if localKeyMonitor == nil {
@@ -138,7 +140,7 @@ final class AppModel {
                         print("[ReelsBar] key \(event.keyCode) editing=\(editing)")
                     }
                     switch event.keyCode {
-                    case 125: // Down — next reel (swallow the page's line-scroll)
+                    case 125: // Down — next reel
                         guard !editing else { return event }
                         self.scrollNext()
                         return nil
@@ -170,8 +172,9 @@ final class AppModel {
             }
         }
         if localScrollMonitor == nil {
-            assert(Self.scrollDirection(deltaX: 0, deltaY: -1) == 1)
-            assert(Self.scrollDirection(deltaX: 0, deltaY: 1) == -1)
+            assert(Self.scrollDirection(accumulatedDeltaY: -23, precise: true) == nil)
+            assert(Self.scrollDirection(accumulatedDeltaY: -24, precise: true) == 1)
+            assert(Self.scrollDirection(accumulatedDeltaY: 24, precise: true) == -1)
             localScrollMonitor = NSEvent.addLocalMonitorForEvents(matching: .scrollWheel) { [weak self] event in
                 MainActor.assumeIsolated {
                     self?.handleScrollWheel(event) ?? event
@@ -180,27 +183,32 @@ final class AppModel {
         }
     }
 
-    private static func scrollDirection(deltaX: Double, deltaY: Double) -> Int? {
-        guard abs(deltaY) >= 0.1, abs(deltaY) > abs(deltaX) else { return nil }
-        return deltaY < 0 ? 1 : -1
+    private static func scrollDirection(accumulatedDeltaY: Double, precise: Bool) -> Int? {
+        let threshold = precise ? preciseScrollThreshold : 1
+        guard abs(accumulatedDeltaY) >= threshold else { return nil }
+        return accumulatedDeltaY < 0 ? 1 : -1
     }
 
     private func handleScrollWheel(_ event: NSEvent) -> NSEvent? {
         guard isPanelActive else { return event }
-        guard let direction = Self.scrollDirection(
-            deltaX: event.scrollingDeltaX,
-            deltaY: event.scrollingDeltaY
-        ) else { return event }
+        guard abs(event.scrollingDeltaY) > abs(event.scrollingDeltaX) else { return event }
 
         if !scrollGestureHandled {
-            scrollGestureHandled = true
-            direction > 0 ? scrollNext() : scrollPrev()
+            accumulatedScrollDeltaY += event.scrollingDeltaY
+            if let direction = Self.scrollDirection(
+                accumulatedDeltaY: accumulatedScrollDeltaY,
+                precise: event.hasPreciseScrollingDeltas
+            ) {
+                scrollGestureHandled = true
+                direction > 0 ? scrollNext() : scrollPrev()
+            }
         }
         scrollGestureResetTask?.cancel()
         scrollGestureResetTask = Task { [weak self] in
             try? await Task.sleep(for: .milliseconds(200))
             guard !Task.isCancelled else { return }
             self?.scrollGestureHandled = false
+            self?.accumulatedScrollDeltaY = 0
         }
         return nil
     }

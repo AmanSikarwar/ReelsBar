@@ -139,14 +139,18 @@ enum ReelsUserScript {
                     }
                     return document.scrollingElement;
                 },
-                _scrollFeed(direction) {
-                    this._pendingLike = null;
-                    const videos = this._videos();
-                    const current = this._activeVideo(videos);
-                    if (!current) return;
-                    const currentCenter = current.getBoundingClientRect().top
-                        + current.getBoundingClientRect().height / 2;
-                    const target = videos
+                _reelItem(video, feed) {
+                    let item = video;
+                    while (item?.parentElement && item.parentElement !== feed) {
+                        item = item.parentElement;
+                    }
+                    return item?.parentElement === feed ? item : video;
+                },
+                _adjacentVideo(direction, videos = this._videos(), current = this._activeVideo(videos)) {
+                    if (!current) return null;
+                    const currentRect = current.getBoundingClientRect();
+                    const currentCenter = currentRect.top + currentRect.height / 2;
+                    return videos
                         .filter(video => {
                             const rect = video.getBoundingClientRect();
                             const center = rect.top + rect.height / 2;
@@ -158,15 +162,48 @@ enum ReelsUserScript {
                             const aDistance = Math.abs(aRect.top + aRect.height / 2 - currentCenter);
                             const bDistance = Math.abs(bRect.top + bRect.height / 2 - currentCenter);
                             return aDistance - bDistance;
-                        })[0];
+                        })[0] || null;
+                },
+                _resumePendingScroll() {
+                    const direction = this._pendingScrollDirection;
+                    if (!direction || this._scrolling || !this._adjacentVideo(direction)) return;
+                    this._pendingScrollDirection = 0;
+                    this._scrollFeed(direction);
+                },
+                _scrolling: false,
+                _pendingScrollDirection: 0,
+                _scrollFeed(direction) {
+                    if (this._scrolling) return;
+                    this._pendingLike = null;
+                    const videos = this._videos();
+                    const current = this._activeVideo(videos);
+                    if (!current) return;
+                    const target = this._adjacentVideo(direction, videos, current);
+                    const feed = this._scrollParent(current);
+                    this._scrolling = true;
                     if (target) {
-                        target.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                        this._pendingScrollDirection = 0;
+                        const item = this._reelItem(target, feed);
+                        item.scrollIntoView({ behavior: 'smooth', block: 'start' });
+                        setTimeout(() => {
+                            this._scrolling = false;
+                        }, 400);
                     } else {
-                        const feed = this._scrollParent(current);
-                        feed?.scrollBy({
-                            top: direction * (feed.clientHeight || window.innerHeight),
-                            behavior: 'smooth'
-                        });
+                        this._pendingScrollDirection = direction;
+                        const distance = feed.clientHeight || window.innerHeight;
+                        feed.scrollBy({ top: direction * distance, behavior: 'smooth' });
+                        setTimeout(() => {
+                            this._scrolling = false;
+                            this._resumePendingScroll();
+                        }, 400);
+                        setTimeout(() => {
+                            if (direction > 0
+                                && this._pendingScrollDirection === direction
+                                && !this._adjacentVideo(direction)) {
+                                sessionStorage.setItem('reelsbarPendingScroll', String(direction));
+                                location.reload();
+                            }
+                        }, 1200);
                     }
                     console.log('[reelsbar] scroll direction', direction, 'target', !!target);
                 },
@@ -259,6 +296,7 @@ enum ReelsUserScript {
                     if (this._observer) return;
                     this._observer = new MutationObserver(() => {
                         this.applyMuted();
+                        this._resumePendingScroll();
                     });
                     this._observer.observe(document.body, { childList: true, subtree: true });
                 },
@@ -269,9 +307,13 @@ enum ReelsUserScript {
                     } catch (e) {}
                 }
             };
+            window.__reelsbar._pendingScrollDirection =
+                Number(sessionStorage.getItem('reelsbarPendingScroll')) || 0;
+            sessionStorage.removeItem('reelsbarPendingScroll');
             window.__reelsbar.applyMuted();
             window.__reelsbar.observe();
             window.__reelsbar.postEditing();
+            setTimeout(() => window.__reelsbar._resumePendingScroll(), 500);
             // Track field focus so native keys never eat login-form typing.
             ['focusin', 'focusout'].forEach(t =>
                 document.addEventListener(t, () => window.__reelsbar.postEditing(), true));
