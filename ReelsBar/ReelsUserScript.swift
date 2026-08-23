@@ -55,6 +55,27 @@ enum ReelsUserScript {
             style.id = 'reelsbar-cleanup';
             style.textContent = \(rawCSSLiteral);
             document.head.appendChild(style);
+
+            // Audio bridge: ReelsBar controls video muting from native code.
+            window.__reelsbar = {
+                muted: true,
+                applyMuted() {
+                    document.querySelectorAll('video').forEach(v => {
+                        v.muted = this.muted;
+                        if (this.muted) v.volume = 0;
+                    });
+                    return this.muted;
+                },
+                setMuted(m) { this.muted = !!m; return this.applyMuted(); },
+                // Keep newly-attached video elements in the current mute state.
+                observe() {
+                    if (this._observer) return;
+                    this._observer = new MutationObserver(() => this.applyMuted());
+                    this._observer.observe(document.body, { childList: true, subtree: true });
+                }
+            };
+            window.__reelsbar.applyMuted();
+            window.__reelsbar.observe();
         })();
         """
         let script = WKUserScript(source: source, injectionTime: .atDocumentEnd, forMainFrameOnly: true)

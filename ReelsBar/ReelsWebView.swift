@@ -16,27 +16,32 @@ enum ReelsWebViewFactory {
 }
 
 struct ReelsWebView: NSViewRepresentable {
+    @Environment(AppModel.self) private var appModel
+
     func makeNSView(context: Context) -> WKWebView {
         let webView = WKWebView(frame: .zero, configuration: ReelsWebViewFactory.makeConfiguration())
-        webView.navigationDelegate = context.coordinator
-        context.coordinator.webView = webView
         webView.customUserAgent = ReelsWebViewFactory.iPhoneUserAgent
-        webView.allowsBackForwardNavigationGestures = false
+        webView.navigationDelegate = context.coordinator
+        context.coordinator.appModel = appModel
+        appModel.webView = webView
         webView.load(URLRequest(url: ReelsWebViewFactory.reelsURL))
         return webView
     }
 
-    func updateNSView(_ webView: WKWebView, context: Context) {}
+    func updateNSView(_ webView: WKWebView, context: Context) {
+        context.coordinator.appModel = appModel
+    }
 
     func makeCoordinator() -> Coordinator {
         Coordinator()
     }
 
     final class Coordinator: NSObject, WKNavigationDelegate {
-        weak var webView: WKWebView?
+        weak var appModel: AppModel?
 
         func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
-            webView.evaluateJavaScript("document.body.setAttribute('data-reelsbar', 'loaded')")
+            // Instagram is an SPA; enforce the audio policy after every navigation.
+            appModel?.enforceDefaultAudioPolicy()
         }
     }
 }
