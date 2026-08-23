@@ -5,9 +5,9 @@ struct ReelsBarPanel: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            Text("ReelsBar")
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
+            ReelsWebView()
         }
+        .ignoresSafeArea()
         .frame(width: 375, height: 667)
     }
 }
