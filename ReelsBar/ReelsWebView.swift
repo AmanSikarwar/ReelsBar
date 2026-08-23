@@ -10,6 +10,7 @@ enum ReelsWebViewFactory {
     static func makeConfiguration() -> WKWebViewConfiguration {
         let config = WKWebViewConfiguration()
         config.applicationNameForUserAgent = iPhoneUserAgent
+        ReelsUserScript.inject(into: config.userContentController)
         return config
     }
 }
