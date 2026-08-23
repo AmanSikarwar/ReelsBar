@@ -48,10 +48,24 @@ struct ReelsWebView: NSViewRepresentable {
 
         func userContentController(_ userContentController: WKUserContentController,
                                    didReceive message: WKScriptMessage) {
-            guard message.name == "reelsbar", message.body as? String == "videoEnded" else { return }
-            Task { @MainActor in
-                self.appModel?.videoDidEnd()
-            }
+            guard message.name == "reelsbar" else { return }
+            let handled: (() -> Void)? = {
+                if let body = message.body as? String, body == "videoEnded" {
+                    return { [weak appModel] in appModel?.videoDidEnd() }
+                }
+                guard let dict = message.body as? [String: Any] else { return nil }
+                switch dict["type"] as? String {
+                case "videoEnded":
+                    return { [weak appModel] in appModel?.videoDidEnd() }
+                case "editing":
+                    let value = dict["value"] as? Bool ?? false
+                    return { [weak appModel] in appModel?.isPageEditing = value }
+                default:
+                    return nil
+                }
+            }()
+            guard let handled else { return }
+            Task { @MainActor in handled() }
         }
     }
 }

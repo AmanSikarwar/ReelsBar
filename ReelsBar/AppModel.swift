@@ -7,6 +7,8 @@ final class AppModel {
     var isMuted = true
     var isAutoScrollActive = false
     var isPanelActive = false
+    /// Mirrors DOM focus state so the key monitor can guard synchronously.
+    var isPageEditing = false
 
     weak var webView: WKWebView?
 
@@ -25,33 +27,22 @@ final class AppModel {
         setMuted(!isMuted)
     }
 
-    // MARK: - Keyboard actions (guarded against text-field typing)
-
-    private func runIfNotEditing(_ js: @autoclosure @escaping () -> String, native: (() -> Void)? = nil) {
-        guard let webView else { return }
-        webView.evaluateJavaScript("window.__reelsbar ? !window.__reelsbar.isEditing() : false") { result, _ in
-            Task { @MainActor in
-                guard result as? Bool == true else { return }
-                webView.evaluateJavaScript(js())
-                native?()
-            }
-        }
-    }
+    // MARK: - Keyboard actions
 
     func scrollNext() {
-        runIfNotEditing("window.__reelsbar && window.__reelsbar.scrollNext()")
+        runJS("window.__reelsbar && window.__reelsbar.scrollNext()")
     }
 
     func scrollPrev() {
-        runIfNotEditing("window.__reelsbar && window.__reelsbar.scrollPrev()")
+        runJS("window.__reelsbar && window.__reelsbar.scrollPrev()")
     }
 
     func togglePlay() {
-        runIfNotEditing("window.__reelsbar && window.__reelsbar.togglePlay()")
+        runJS("window.__reelsbar && window.__reelsbar.togglePlay()")
     }
 
     func like() {
-        runIfNotEditing("window.__reelsbar && window.__reelsbar.like()")
+        runJS("window.__reelsbar && window.__reelsbar.like()")
     }
 
     func toggleAutoScroll() {
@@ -157,18 +148,26 @@ final class AppModel {
         guard localKeyMonitor == nil else { return }
         localKeyMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] event in
             MainActor.assumeIsolated {
-                guard let self, self.isPanelActive,
-                      !event.modifierFlags.intersection(.deviceIndependentFlagsMask)
-                          .contains(.command) else { return event }
+                guard let self, self.isPanelActive else { return event }
+                let flags = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
+                guard !flags.contains(.command), !flags.contains(.option), !flags.contains(.control) else { return event }
+                let editing = self.isPageEditing
                 switch event.keyCode {
-                case 49: self.togglePlay()            // Space
-                case 126: self.scrollPrev()           // Up
-                case 125: self.scrollNext()           // Down
-                case 46: self.runIfNotEditing(
-                    "window.__reelsbar && window.__reelsbar.setMuted(\(self.isMuted ? "false" : "true"))",
-                    native: { self.isMuted.toggle() })  // M
-                case 0: self.toggleAutoScroll()       // A
-                case 37: self.like()                  // L
+                case 125: // Down — next reel (swallow the page's line-scroll)
+                    guard !editing else { return event }
+                    self.scrollNext()
+                    return nil
+                case 126: // Up — previous reel
+                    guard !editing else { return event }
+                    self.scrollPrev()
+                    return nil
+                case 49: // Space — play/pause (swallow the page's space-scroll)
+                    guard !editing else { return event }
+                    self.togglePlay()
+                    return nil
+                case 46: if !editing { self.toggleMute() }        // M
+                case 0:  if !editing { self.toggleAutoScroll() }  // A
+                case 37: if !editing { self.like() }              // L
                 default: break
                 }
                 return event

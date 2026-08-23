@@ -46,6 +46,15 @@ enum ReelsUserScript {
     video {
         object-fit: contain !important;
     }
+
+    /* Reel-by-reel paging: the feed scroller snaps to each reel boundary */
+    .reelsbar-snap {
+        scroll-snap-type: y mandatory !important;
+    }
+    .reelsbar-snap > * {
+        scroll-snap-align: start !important;
+        scroll-snap-stop: always !important;
+    }
     """
 
     static func inject(into contentController: WKUserContentController) {
@@ -112,13 +121,48 @@ enum ReelsUserScript {
                 scrollPrev() {
                     this._scrollFeed(-window.innerHeight);
                 },
-                _scrollFeed(delta) {
-                    // Find the tallest scrollable ancestor of the video feed.
-                    const scrollers = [...document.querySelectorAll('div')]
+                _feedEl: null,
+                _feed() {
+                    if (this._feedEl && this._feedEl.isConnected
+                        && this._feedEl.scrollHeight > this._feedEl.clientHeight) {
+                        return this._feedEl;
+                    }
+                    this._feedEl = [...document.querySelectorAll('div')]
                         .filter(d => d.scrollHeight > d.clientHeight + 10 && d.clientHeight > 200)
-                        .sort((a, b) => b.clientHeight - a.clientHeight);
-                    const feed = scrollers[0] || document.scrollingElement;
-                    if (feed) feed.scrollBy({ top: delta, behavior: 'smooth' });
+                        .sort((a, b) => b.clientHeight - a.clientHeight)[0]
+                        || document.scrollingElement;
+                    if (this._feedEl) this._feedEl.classList.add('reelsbar-snap');
+                    return this._feedEl;
+                },
+                _currentItem(feed) {
+                    // Climb from the viewport center (or visible video) to a
+                    // direct child of the feed — that child is one reel.
+                    let node = document.elementFromPoint(window.innerWidth / 2, window.innerHeight / 2);
+                    if (!node || node.parentElement !== feed) {
+                        if (!node) {
+                            const video = [...document.querySelectorAll('video')]
+                                .find(v => v.getBoundingClientRect().height > 0);
+                            node = video;
+                        }
+                        while (node && node.parentElement !== feed) node = node.parentElement;
+                    }
+                    return node && node.parentElement === feed ? node : null;
+                },
+                _scrollFeed(delta) {
+                    const feed = this._feed();
+                    if (!feed) return;
+                    const item = this._currentItem(feed);
+                    const target = item
+                        ? (delta > 0 ? item.nextElementSibling : item.previousElementSibling)
+                        : null;
+                    if (target) {
+                        // Land exactly on the next reel's top edge.
+                        const top = target.getBoundingClientRect().top
+                                  - feed.getBoundingClientRect().top + feed.scrollTop;
+                        feed.scrollTo({ top, behavior: 'smooth' });
+                    } else {
+                        feed.scrollBy({ top: delta, behavior: 'smooth' });
+                    }
                 },
                 like() {
                     // Best-effort: click the "Like" button on the visible reel.
@@ -131,12 +175,26 @@ enum ReelsUserScript {
                 // Keep newly-attached video elements in the current mute state.
                 observe() {
                     if (this._observer) return;
-                    this._observer = new MutationObserver(() => this.applyMuted());
+                    this._observer = new MutationObserver(() => {
+                        this.applyMuted();
+                        if (!this._feedEl || !this._feedEl.isConnected) this._feed();
+                    });
                     this._observer.observe(document.body, { childList: true, subtree: true });
+                },
+                postEditing() {
+                    try {
+                        window.webkit.messageHandlers.reelsbar.postMessage(
+                            { type: 'editing', value: this.isEditing() });
+                    } catch (e) {}
                 }
             };
             window.__reelsbar.applyMuted();
             window.__reelsbar.observe();
+            window.__reelsbar._feed();
+            window.__reelsbar.postEditing();
+            // Track field focus so native keys never eat login-form typing.
+            ['focusin', 'focusout'].forEach(t =>
+                document.addEventListener(t, () => window.__reelsbar.postEditing(), true));
         })();
         """
         let script = WKUserScript(source: source, injectionTime: .atDocumentEnd, forMainFrameOnly: true)
