@@ -67,6 +67,18 @@ enum ReelsUserScript {
                     return this.muted;
                 },
                 setMuted(m) { this.muted = !!m; return this.applyMuted(); },
+                pauseAll() {
+                    document.querySelectorAll('video').forEach(v => v.pause());
+                },
+                resumeActive() {
+                    // Resume only the video currently filling the viewport.
+                    const videos = [...document.querySelectorAll('video')];
+                    const visible = videos.find(v => {
+                        const r = v.getBoundingClientRect();
+                        return r.height > 0 && r.bottom > window.innerHeight * 0.5 && r.top < window.innerHeight * 0.5;
+                    });
+                    if (visible) visible.play().catch(() => {});
+                },
                 // Keep newly-attached video elements in the current mute state.
                 observe() {
                     if (this._observer) return;
