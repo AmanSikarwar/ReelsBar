@@ -8,8 +8,12 @@ enum ReelsUserScript {
     html, body {
         margin: 0 !important;
         padding: 0 !important;
-        overflow: hidden !important;
         background: #000 !important;
+    }
+
+    /* Hide scrollbars for a native-app feel */
+    ::-webkit-scrollbar {
+        display: none;
     }
 
     /* Top header / banner, bottom nav bars, side columns */
@@ -47,11 +51,14 @@ enum ReelsUserScript {
         object-fit: contain !important;
     }
 
-    /* Reel-by-reel paging: the feed scroller snaps to each reel boundary */
+    /* Reel-by-reel paging: the feed scroller snaps to each reel boundary.
+       Snap areas can live at any depth, so cover both the div-scroller case
+       (direct children are reels) and the document-scroller case (articles). */
     .reelsbar-snap {
         scroll-snap-type: y mandatory !important;
     }
-    .reelsbar-snap > * {
+    .reelsbar-snap > *,
+    .reelsbar-snap article {
         scroll-snap-align: start !important;
         scroll-snap-stop: always !important;
     }
@@ -69,13 +76,12 @@ enum ReelsUserScript {
             window.__reelsbar = {
                 muted: true,
                 applyMuted() {
-                    document.querySelectorAll('video').forEach(v => {
-                        v.muted = this.muted;
-                        if (this.muted) v.volume = 0;
-                    });
+                    // Never touch `volume` — muting alone silences, and stale
+                    // volume=0 would keep the feed silent after unmute.
+                    document.querySelectorAll('video').forEach(v => { v.muted = this.muted; });
                     return this.muted;
                 },
-                setMuted(m) { this.muted = !!m; return this.applyMuted(); },
+                setMuted(m) { this.muted = !!m; console.log('[reelsbar] setMuted', m); return this.applyMuted(); },
                 _autoScroll: false,
                 setAutoScroll(on) {
                     this._autoScroll = !!on;
@@ -112,6 +118,7 @@ enum ReelsUserScript {
                 togglePlay() {
                     const videos = [...document.querySelectorAll('video')];
                     const visible = videos.find(v => v.getBoundingClientRect().height > 0);
+                    console.log('[reelsbar] togglePlay, videos:', videos.length, 'visible:', !!visible);
                     if (!visible) return;
                     if (visible.paused) visible.play().catch(() => {}); else visible.pause();
                 },
@@ -127,11 +134,17 @@ enum ReelsUserScript {
                         && this._feedEl.scrollHeight > this._feedEl.clientHeight) {
                         return this._feedEl;
                     }
+                    // Prefer a real scrolling div that fills most of the viewport…
                     this._feedEl = [...document.querySelectorAll('div')]
-                        .filter(d => d.scrollHeight > d.clientHeight + 10 && d.clientHeight > 200)
+                        .filter(d => d.scrollHeight > d.clientHeight + 10
+                                     && d.clientHeight > window.innerHeight * 0.5)
                         .sort((a, b) => b.clientHeight - a.clientHeight)[0]
-                        || document.scrollingElement;
+                        // …else fall back to the document scroller itself.
+                        || (document.scrollingElement
+                            && document.scrollingElement.scrollHeight > window.innerHeight + 10
+                            ? document.scrollingElement : null);
                     if (this._feedEl) this._feedEl.classList.add('reelsbar-snap');
+                    console.log('[reelsbar] feed:', this._feedEl ? this._feedEl.tagName : 'none');
                     return this._feedEl;
                 },
                 _currentItem(feed) {
@@ -163,6 +176,36 @@ enum ReelsUserScript {
                     } else {
                         feed.scrollBy({ top: delta, behavior: 'smooth' });
                     }
+                    console.log('[reelsbar] scroll delta', delta,
+                                 'item', !!item, 'target', !!target,
+                                 'feedTop', Math.round(feed.scrollTop));
+                },
+                // Snapshot of everything native debugging needs to know.
+                diag() {
+                    const info = (el) => el ? {
+                        tag: el.tagName, cls: String(el.className).slice(0, 50),
+                        scrollH: el.scrollHeight, clientH: el.clientHeight,
+                        kids: el.children.length
+                    } : null;
+                    const scrollers = [...document.querySelectorAll('div')]
+                        .filter(d => d.scrollHeight > d.clientHeight + 10)
+                        .slice(0, 5).map(info);
+                    const videos = [...document.querySelectorAll('video')];
+                    const visible = videos.find(v => v.getBoundingClientRect().height > 0);
+                    return JSON.stringify({
+                        url: location.href,
+                        viewport: window.innerWidth + 'x' + window.innerHeight,
+                        documentScroller: info(document.scrollingElement),
+                        scrollerDivs: scrollers,
+                        chosenFeed: info(this._feedEl),
+                        articles: document.querySelectorAll('article').length,
+                        videos: videos.length,
+                        visibleVideo: visible ? {
+                            muted: visible.muted, volume: visible.volume,
+                            paused: visible.paused,
+                            height: Math.round(visible.getBoundingClientRect().height)
+                        } : null
+                    });
                 },
                 like() {
                     // Best-effort: click the "Like" button on the visible reel.
@@ -195,6 +238,21 @@ enum ReelsUserScript {
             // Track field focus so native keys never eat login-form typing.
             ['focusin', 'focusout'].forEach(t =>
                 document.addEventListener(t, () => window.__reelsbar.postEditing(), true));
+
+            // Forward page console output to native for diagnostics.
+            const nativeLog = (...args) => {
+                const text = args.map(a => {
+                    try { return typeof a === 'object' ? JSON.stringify(a) : String(a); }
+                    catch (e) { return '?'; }
+                }).join(' ').slice(0, 500);
+                try {
+                    window.webkit.messageHandlers.reelsbar.postMessage({ type: 'log', value: text });
+                } catch (e) {}
+            };
+            ['log', 'warn', 'error'].forEach(k => {
+                const orig = console[k].bind(console);
+                console[k] = (...a) => { nativeLog(...a); orig(...a); };
+            });
         })();
         """
         let script = WKUserScript(source: source, injectionTime: .atDocumentEnd, forMainFrameOnly: true)

@@ -44,6 +44,19 @@ struct ReelsWebView: NSViewRepresentable {
         func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
             // Instagram is an SPA; enforce the audio policy after every navigation.
             appModel?.enforceDefaultAudioPolicy()
+            // Dump a diagnostic snapshot once the SPA settles.
+            DispatchQueue.main.asyncAfter(deadline: .now() + 4) { [weak self, weak webView] in
+                Task { @MainActor in
+                    guard let self, let webView else { return }
+                    webView.evaluateJavaScript("window.__reelsbar ? window.__reelsbar.diag() : 'no-bridge'") { result, error in
+                        Task { @MainActor in
+                            if let error { print("[ReelsBar] diag error: \(error.localizedDescription)") }
+                            else { print("[ReelsBar] diag: \(result ?? "nil")") }
+                            _ = self
+                        }
+                    }
+                }
+            }
         }
 
         func userContentController(_ userContentController: WKUserContentController,
@@ -60,6 +73,9 @@ struct ReelsWebView: NSViewRepresentable {
                 case "editing":
                     let value = dict["value"] as? Bool ?? false
                     return { [weak appModel] in appModel?.isPageEditing = value }
+                case "log":
+                    let value = dict["value"] as? String ?? ""
+                    return { print("[ReelsBar:page] \(value)") }
                 default:
                     return nil
                 }

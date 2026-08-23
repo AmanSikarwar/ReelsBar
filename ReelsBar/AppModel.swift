@@ -128,16 +128,35 @@ final class AppModel {
     func handlePanelDeactivated() {
         guard isPanelActive else { return }
         isPanelActive = false
+        print("[ReelsBar] panel deactivated")
         runJS("window.__reelsbar && (window.__reelsbar.pauseAll(), window.__reelsbar.setMuted(true))")
         suspendAutoScrollTimer()
+        audioWatchdog?.invalidate()
+        audioWatchdog = nil
     }
 
     /// Restore readiness and the user's prior mute choice when visible again.
     func handlePanelActivated() {
         guard !isPanelActive, webView != nil, NSApp.isActive else { return }
         isPanelActive = true
+        print("[ReelsBar] panel activated")
         runJS("window.__reelsbar && (window.__reelsbar.setMuted(\(isMuted)), window.__reelsbar.resumeActive())")
         resumeAutoScrollTimer()
+        startAudioWatchdog()
+    }
+
+    /// Re-assert the audio state every second while visible: Instagram's own
+    /// scripts reset `video.muted` when they re-render, which would otherwise
+    /// fight the native toggle.
+    private var audioWatchdog: Timer?
+
+    private func startAudioWatchdog() {
+        audioWatchdog?.invalidate()
+        audioWatchdog = Timer.scheduledTimer(withTimeInterval: 1, repeats: true) { [weak self] _ in
+            Task { @MainActor in
+                self?.runJS("window.__reelsbar && window.__reelsbar.applyMuted()")
+            }
+        }
     }
 
     // MARK: - Local keyboard monitoring (active window only)
@@ -152,6 +171,9 @@ final class AppModel {
                 let flags = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
                 guard !flags.contains(.command), !flags.contains(.option), !flags.contains(.control) else { return event }
                 let editing = self.isPageEditing
+                if [0, 37, 46, 49, 125, 126].contains(event.keyCode) {
+                    print("[ReelsBar] key \(event.keyCode) editing=\(editing)")
+                }
                 switch event.keyCode {
                 case 125: // Down — next reel (swallow the page's line-scroll)
                     guard !editing else { return event }
