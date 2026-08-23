@@ -8,6 +8,8 @@ struct ReelsBarApp: App {
         let model = AppModel()
         _appModel = State(initialValue: model)
         model.startLifecycleObservation()
+        model.startKeyboardMonitoring()
+        model.startGlobalHotkey()
     }
 
     var body: some Scene {

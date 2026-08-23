@@ -79,6 +79,38 @@ enum ReelsUserScript {
                     });
                     if (visible) visible.play().catch(() => {});
                 },
+                isEditing() {
+                    const el = document.activeElement;
+                    return !!el && (el.tagName === 'INPUT' || el.tagName === 'TEXTAREA' || el.isContentEditable);
+                },
+                togglePlay() {
+                    const videos = [...document.querySelectorAll('video')];
+                    const visible = videos.find(v => v.getBoundingClientRect().height > 0);
+                    if (!visible) return;
+                    if (visible.paused) visible.play().catch(() => {}); else visible.pause();
+                },
+                scrollNext() {
+                    this._scrollFeed(window.innerHeight);
+                },
+                scrollPrev() {
+                    this._scrollFeed(-window.innerHeight);
+                },
+                _scrollFeed(delta) {
+                    // Find the tallest scrollable ancestor of the video feed.
+                    const scrollers = [...document.querySelectorAll('div')]
+                        .filter(d => d.scrollHeight > d.clientHeight + 10 && d.clientHeight > 200)
+                        .sort((a, b) => b.clientHeight - a.clientHeight);
+                    const feed = scrollers[0] || document.scrollingElement;
+                    if (feed) feed.scrollBy({ top: delta, behavior: 'smooth' });
+                },
+                like() {
+                    // Best-effort: click the "Like" button on the visible reel.
+                    const buttons = [...document.querySelectorAll('svg[aria-label], button')];
+                    const like = buttons.find(b => (b.getAttribute('aria-label') || '').toLowerCase() === 'like'
+                                                    || (b.closest('[role="button"]')?.getAttribute('aria-label') || '').toLowerCase() === 'like');
+                    (like?.closest('[role="button"]') || like)?.dispatchEvent(
+                        new MouseEvent('click', { bubbles: true, cancelable: true }));
+                },
                 // Keep newly-attached video elements in the current mute state.
                 observe() {
                     if (this._observer) return;

@@ -25,6 +25,40 @@ final class AppModel {
         setMuted(!isMuted)
     }
 
+    // MARK: - Keyboard actions (guarded against text-field typing)
+
+    private func runIfNotEditing(_ js: @autoclosure @escaping () -> String, native: (() -> Void)? = nil) {
+        guard let webView else { return }
+        webView.evaluateJavaScript("window.__reelsbar ? !window.__reelsbar.isEditing() : false") { result, _ in
+            Task { @MainActor in
+                guard result as? Bool == true else { return }
+                webView.evaluateJavaScript(js())
+                native?()
+            }
+        }
+    }
+
+    func scrollNext() {
+        runIfNotEditing("window.__reelsbar && window.__reelsbar.scrollNext()")
+    }
+
+    func scrollPrev() {
+        runIfNotEditing("window.__reelsbar && window.__reelsbar.scrollPrev()")
+    }
+
+    func togglePlay() {
+        runIfNotEditing("window.__reelsbar && window.__reelsbar.togglePlay()")
+    }
+
+    func like() {
+        runIfNotEditing("window.__reelsbar && window.__reelsbar.like()")
+    }
+
+    func toggleAutoScroll() {
+        isAutoScrollActive.toggle()
+        runJS("window.__reelsbar && window.__reelsbar.setAutoScroll && window.__reelsbar.setAutoScroll(\(isAutoScrollActive))")
+    }
+
     /// Re-assert mute-by-default on every page load or reload.
     func enforceDefaultAudioPolicy() {
         isMuted = true
@@ -85,6 +119,59 @@ final class AppModel {
         isPanelActive = true
         runJS("window.__reelsbar && (window.__reelsbar.setMuted(\(isMuted)), window.__reelsbar.resumeActive())")
         resumeAutoScrollTimer()
+    }
+
+    // MARK: - Local keyboard monitoring (active window only)
+
+    private var localKeyMonitor: Any?
+
+    func startKeyboardMonitoring() {
+        guard localKeyMonitor == nil else { return }
+        localKeyMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] event in
+            MainActor.assumeIsolated {
+                guard let self, self.isPanelActive,
+                      !event.modifierFlags.intersection(.deviceIndependentFlagsMask)
+                          .contains(.command) else { return event }
+                switch event.keyCode {
+                case 49: self.togglePlay()            // Space
+                case 126: self.scrollPrev()           // Up
+                case 125: self.scrollNext()           // Down
+                case 46: self.runIfNotEditing(
+                    "window.__reelsbar && window.__reelsbar.setMuted(\(self.isMuted ? "false" : "true"))",
+                    native: { self.isMuted.toggle() })  // M
+                case 0: self.toggleAutoScroll()       // A
+                case 37: self.like()                  // L
+                default: break
+                }
+                return event
+            }
+        }
+    }
+
+    // MARK: - Global hotkey (⌘⇧R) panel toggle
+
+    private var hotkeyManager: HotkeyManager?
+
+    func startGlobalHotkey() {
+        guard hotkeyManager == nil else { return }
+        hotkeyManager = HotkeyManager { [weak self] in
+            Task { @MainActor in self?.togglePanelFromHotkey() }
+        }
+        hotkeyManager?.register()
+    }
+
+    func togglePanelFromHotkey() {
+        if let window = webView?.window, window.isVisible {
+            window.orderOut(nil)
+            handlePanelDeactivated()
+        } else {
+            NSApp.activate(ignoringOtherApps: true)
+            // MenuBarExtra's status item window hosts the toggle button.
+            let statusButton = NSApp.windows
+                .first { String(describing: type(of: $0)).contains("NSStatusBarWindow") }?
+                .contentView?.subviews.compactMap { $0 as? NSStatusBarButton }.first
+            statusButton?.performClick(nil)
+        }
     }
 
     // MARK: - Auto-scroll timer suspension hook (engine wired in Phase 8)
