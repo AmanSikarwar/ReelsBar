@@ -17,6 +17,18 @@ enum ReelsUserScript {
         display: none !important;
     }
 
+    /* F toggles this class for a reel-only 9:16 viewport. */
+    html.reelsbar-reel-mode .reelsbar-bottom-nav {
+        display: none !important;
+    }
+
+    html.reelsbar-reel-mode .reelsbar-reel-feed {
+        height: 100% !important;
+        min-height: 100% !important;
+        max-height: 100% !important;
+        padding-bottom: 0 !important;
+    }
+
     /* Main article should fill the viewport edge to edge */
     main, article, [role="main"] {
         margin: 0 !important;
@@ -59,6 +71,69 @@ enum ReelsUserScript {
                 setAutoScroll(on) {
                     this._autoScroll = !!on;
                     if (this._autoScroll) this._watchVideoEnds();
+                },
+                _reelMode: true,
+                setReelMode(on) {
+                    this._reelMode = !!on;
+                    document.documentElement.classList.toggle(
+                        'reelsbar-reel-mode', this._reelMode);
+                    if (this._reelMode) {
+                        this._markBottomNavigation();
+                        this._markReelFeed();
+                    } else {
+                        document.querySelectorAll('.reelsbar-bottom-nav').forEach(element =>
+                            element.classList.remove('reelsbar-bottom-nav'));
+                        document.querySelectorAll('.reelsbar-reel-feed').forEach(element =>
+                            element.classList.remove('reelsbar-reel-feed'));
+                    }
+                },
+                _markReelFeed() {
+                    const feed = this._scrollParent(this._activeVideo());
+                    if (!feed || feed === document.scrollingElement) return;
+                    document.querySelectorAll('.reelsbar-reel-feed').forEach(element =>
+                        element.classList.remove('reelsbar-reel-feed'));
+                    feed.classList.add('reelsbar-reel-feed');
+                },
+                _markBottomNavigation() {
+                    const semantic = 'nav, footer, [role="navigation"], [role="tablist"], '
+                        + '[aria-label*="navigation" i], [aria-label*="menu" i]';
+                    const bottom = window.innerHeight - 2;
+                    document.querySelectorAll('.reelsbar-bottom-nav').forEach(element =>
+                        element.classList.remove('reelsbar-bottom-nav'));
+                    const isBottomBar = (element) => {
+                        const rect = element.getBoundingClientRect();
+                        return rect.width >= window.innerWidth * 0.85
+                            && rect.height >= 40 && rect.height <= 100
+                            && rect.top >= window.innerHeight * 0.65
+                            && rect.bottom >= bottom;
+                    };
+                    const markBarAndContainer = (element) => {
+                        for (let current = element; current; current = current.parentElement) {
+                            const rect = current.getBoundingClientRect();
+                            if (rect.width < window.innerWidth * 0.85
+                                || rect.height < 40 || rect.height > 120
+                                || rect.top < window.innerHeight * 0.65
+                                || rect.bottom < bottom) break;
+                            current.classList.add('reelsbar-bottom-nav');
+                        }
+                    };
+                    const semanticBars = [...document.querySelectorAll(semantic)]
+                        .filter(isBottomBar);
+                    if (semanticBars.length) {
+                        document.querySelectorAll('.reelsbar-bottom-nav').forEach(element =>
+                            element.classList.remove('reelsbar-bottom-nav'));
+                        semanticBars.forEach(markBarAndContainer);
+                        return;
+                    }
+                    const bar = [...document.querySelectorAll('div')]
+                        .filter(element => isBottomBar(element)
+                            && element.querySelectorAll('a, button, [role="button"], [role="link"]').length >= 3)
+                        .sort((a, b) => b.getBoundingClientRect().height - a.getBoundingClientRect().height)[0];
+                    if (bar) {
+                        document.querySelectorAll('.reelsbar-bottom-nav').forEach(element =>
+                            element.classList.remove('reelsbar-bottom-nav'));
+                        markBarAndContainer(bar);
+                    }
                 },
                 _watchVideoEnds() {
                     if (this._endedHook) return;
@@ -286,6 +361,10 @@ enum ReelsUserScript {
                     this._observer = new MutationObserver(() => {
                         this.applyMuted();
                         this._resumePendingScroll();
+                        if (this._reelMode) {
+                            this._markBottomNavigation();
+                            this._markReelFeed();
+                        }
                     });
                     this._observer.observe(document.body, { childList: true, subtree: true });
                 },
@@ -312,9 +391,16 @@ enum ReelsUserScript {
             sessionStorage.removeItem('reelsbarPendingScroll');
             window.__reelsbar.applyMuted();
             window.__reelsbar.observe();
+            window.__reelsbar.setReelMode(true);
             window.__reelsbar.postEditing();
             window.__reelsbar.postRoute();
             setTimeout(() => window.__reelsbar._resumePendingScroll(), 500);
+            window.addEventListener('resize', () => {
+                if (window.__reelsbar._reelMode) {
+                    window.__reelsbar._markBottomNavigation();
+                    window.__reelsbar._markReelFeed();
+                }
+            });
             ['popstate', 'hashchange'].forEach(t =>
                 window.addEventListener(t, () => window.__reelsbar.postRoute()));
             ['pushState', 'replaceState'].forEach(method => {

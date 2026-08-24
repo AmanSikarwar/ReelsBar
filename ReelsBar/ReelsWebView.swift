@@ -75,7 +75,7 @@ struct ReelsWebView: NSViewRepresentable {
                     return { [weak appModel] in appModel?.isPageEditing = value }
                 case "route":
                     let value = dict["reels"] as? Bool ?? false
-                    return { [weak appModel] in appModel?.isReelsTab = value }
+                    return { [weak appModel] in appModel?.setReelsTab(value) }
                 case "log":
                     let value = dict["value"] as? String ?? ""
                     return { print("[ReelsBar:page] \(value)") }

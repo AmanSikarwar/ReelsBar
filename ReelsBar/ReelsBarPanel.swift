@@ -34,7 +34,10 @@ struct ReelsBarPanel: View {
                 }
             }
         }
-        .frame(width: 375, height: 812)
+        .frame(
+            width: appModel.isReelMode ? AppModel.reelSize.width : AppModel.panelSize.width,
+            height: appModel.isReelMode ? AppModel.reelSize.height : AppModel.panelSize.height
+        )
         .ignoresSafeArea()
     }
 }

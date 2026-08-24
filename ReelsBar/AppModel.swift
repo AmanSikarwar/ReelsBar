@@ -4,10 +4,15 @@ import WebKit
 @Observable
 @MainActor
 final class AppModel {
+    static let panelSize = CGSize(width: 375, height: 812)
+    static let reelSize = CGSize(width: 375, height: 667)
+
     var isMuted = true
     var isAutoScrollActive = false
     var isPanelActive = false
     var isReelsTab = false
+    var isReelMode = true
+    var reelModeDidChange: ((Bool) -> Void)?
     /// Mirrors DOM focus state so the key monitor can guard synchronously.
     var isPageEditing = false
 
@@ -54,6 +59,23 @@ final class AppModel {
         } else {
             suspendAutoScrollTimer()
         }
+    }
+
+    func setReelsTab(_ isReels: Bool) {
+        isReelsTab = isReels
+        setReelMode(isReels)
+    }
+
+    func toggleReelMode() {
+        guard isReelsTab else { return }
+        setReelMode(!isReelMode)
+    }
+
+    private func setReelMode(_ enabled: Bool) {
+        guard enabled != isReelMode else { return }
+        isReelMode = enabled
+        runJS("window.__reelsbar && window.__reelsbar.setReelMode(\(enabled))")
+        reelModeDidChange?(enabled)
     }
 
     // MARK: - Auto-scroll engine
@@ -139,7 +161,7 @@ final class AppModel {
                     let flags = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
                     guard !flags.contains(.command), !flags.contains(.option), !flags.contains(.control) else { return event }
                     let editing = self.isPageEditing
-                    if [0, 37, 46, 49, 125, 126].contains(event.keyCode) {
+                    if [0, 3, 37, 46, 49, 125, 126].contains(event.keyCode) {
                         print("[ReelsBar] key \(event.keyCode) editing=\(editing)")
                     }
                     switch event.keyCode {
@@ -162,6 +184,11 @@ final class AppModel {
                     case 0: // A
                         guard !editing else { return event }
                         self.toggleAutoScroll()
+                        return nil
+                    case 3: // F — reel-only mode
+                        guard !editing, self.isReelsTab else { return event }
+                        guard !event.isARepeat else { return nil }
+                        self.toggleReelMode()
                         return nil
                     case 37: // L
                         guard !editing else { return event }

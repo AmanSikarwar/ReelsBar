@@ -1,10 +1,11 @@
 # ReelsBar
 
-A lightweight macOS menu bar app for browsing Instagram Reels in a mobile-sized panel — no browser window, no Dock icon. Click the status bar icon (or press **⌘⇧R** from anywhere) and a 375×812 floating panel drops down from the menu bar with a full-bleed Reels feed.
+A lightweight macOS menu bar app for browsing Instagram Reels in a mobile-sized panel — no browser window, no Dock icon. Click the status bar icon (or press **⌘⇧R** from anywhere) and a 375×667 fullscreen reel panel drops down from the menu bar with a full-bleed Reels feed.
 
 ## Features
 
-- **Menu bar popover** — native `NSStatusItem` and `NSPopover`; fixed mobile viewport of 375 × 812.
+- **Menu bar popover** — native `NSStatusItem` and `NSPopover`; opens in a 375 × 667 fullscreen reel viewport.
+- **Reel mode** — enabled by default; press `F` on the Reels tab to restore the 375 × 812 Instagram panel, and press `F` again to return to the 375 × 667 reel viewport.
 - **Mobile web view** — WKWebView loading `instagram.com/reels` with an iPhone Safari User-Agent, so Instagram serves its vertical mobile interface.
 - **Instagram UI preserved** — injected CSS hides only Instagram's install-app links.
 - **Muted by default** — playback always starts silent (including after reloads and SPA navigations); toggle audio from the panel's speaker button or the `M` key. The state survives hide/show cycles.
@@ -23,6 +24,7 @@ A lightweight macOS menu bar app for browsing Instagram Reels in a mobile-sized 
 | Space | Panel | Play / pause current video |
 | M | Panel | Mute / unmute |
 | A | Panel | Toggle auto-scroll |
+| F | Reels tab | Toggle reel-only 9:16 mode and hide Instagram's bottom bar |
 | L, L | Panel | Like the active reel; press L again to unlike |
 
 ## Getting started
@@ -57,8 +59,8 @@ open ~/Library/Developer/Xcode/DerivedData/ReelsBar-*/Build/Products/Debug/Reels
 | --- | --- |
 | `ReelsBar/ReelsBarApp.swift` | App entry: installs the AppKit delegate for the agent app. |
 | `ReelsBar/AppDelegate.swift` | Owns the status item, popover, global hotkey, and panel lifecycle. |
-| `ReelsBar/AppModel.swift` | Central `@Observable` state: mute, auto-scroll, local keyboard actions, and fallback timer. |
-| `ReelsBar/ReelsBarPanel.swift` | The 375×812 panel: web view plus overlay controls (mute button, auto-scroll badge). |
+| `ReelsBar/AppModel.swift` | Central `@Observable` state: mute, auto-scroll, reel mode, local keyboard actions, and fallback timer. |
+| `ReelsBar/ReelsBarPanel.swift` | The fullscreen reel panel: web view plus overlay controls (mute button, auto-scroll badge). |
 | `ReelsBar/ReelsWebView.swift` | `NSViewRepresentable` WKWebView: iPhone UA, Reels URL, navigation delegate, script-message handler. |
 | `ReelsBar/ReelsUserScript.swift` | Injected JavaScript/CSS: DOM cleanup, `window.__reelsbar` bridge (mute, scroll, play, like, ended events). |
 | `ReelsBar/HotkeyManager.swift` | Carbon `RegisterEventHotKey` for the system-wide ⌘⇧R toggle. |

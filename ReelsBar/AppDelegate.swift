@@ -21,7 +21,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
         self.statusItem = statusItem
 
         popover.behavior = .transient
-        popover.contentSize = NSSize(width: 375, height: 812)
+        popover.contentSize = AppModel.reelSize
+        appModel.reelModeDidChange = { [weak self] isReelMode in
+            self?.popover.contentSize = isReelMode ? AppModel.reelSize : AppModel.panelSize
+        }
         popover.contentViewController = NSHostingController(
             rootView: ReelsBarPanel().environment(appModel)
         )
