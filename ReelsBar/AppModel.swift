@@ -93,6 +93,8 @@ final class AppModel {
         suspendAutoScrollTimer()
         audioWatchdog?.invalidate()
         audioWatchdog = nil
+        scrollGestureResetTask?.cancel()
+        finishScrollGesture()
     }
 
     /// Restore readiness and the user's prior mute choice when visible again.
@@ -191,7 +193,6 @@ final class AppModel {
 
     private func handleScrollWheel(_ event: NSEvent) -> NSEvent? {
         guard isPanelActive else { return event }
-        guard abs(event.scrollingDeltaY) > abs(event.scrollingDeltaX) else { return event }
 
         if !scrollGestureHandled {
             accumulatedScrollDeltaY += event.scrollingDeltaY
@@ -203,14 +204,27 @@ final class AppModel {
                 direction > 0 ? scrollNext() : scrollPrev()
             }
         }
-        scrollGestureResetTask?.cancel()
-        scrollGestureResetTask = Task { [weak self] in
-            try? await Task.sleep(for: .milliseconds(200))
-            guard !Task.isCancelled else { return }
-            self?.scrollGestureHandled = false
-            self?.accumulatedScrollDeltaY = 0
-        }
+        scheduleScrollGestureReset(for: event)
         return nil
+    }
+
+    private func scheduleScrollGestureReset(for event: NSEvent) {
+        scrollGestureResetTask?.cancel()
+        if event.momentumPhase.contains(.ended)
+            || event.momentumPhase.contains(.cancelled) {
+            finishScrollGesture()
+            return
+        }
+        scrollGestureResetTask = Task { [weak self] in
+            try? await Task.sleep(for: .milliseconds(300))
+            guard !Task.isCancelled else { return }
+            self?.finishScrollGesture()
+        }
+    }
+
+    private func finishScrollGesture() {
+        scrollGestureHandled = false
+        accumulatedScrollDeltaY = 0
     }
 
     // MARK: - Auto-scroll timer
