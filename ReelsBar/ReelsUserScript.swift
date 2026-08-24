@@ -294,6 +294,17 @@ enum ReelsUserScript {
                         window.webkit.messageHandlers.reelsbar.postMessage(
                             { type: 'editing', value: this.isEditing() });
                     } catch (e) {}
+                },
+                _reelsRoute: null,
+                postRoute() {
+                    const path = location.pathname;
+                    const reels = path === '/reels' || path.startsWith('/reels/');
+                    if (reels === this._reelsRoute) return;
+                    this._reelsRoute = reels;
+                    try {
+                        window.webkit.messageHandlers.reelsbar.postMessage(
+                            { type: 'route', reels });
+                    } catch (e) {}
                 }
             };
             window.__reelsbar._pendingScrollDirection =
@@ -302,7 +313,18 @@ enum ReelsUserScript {
             window.__reelsbar.applyMuted();
             window.__reelsbar.observe();
             window.__reelsbar.postEditing();
+            window.__reelsbar.postRoute();
             setTimeout(() => window.__reelsbar._resumePendingScroll(), 500);
+            ['popstate', 'hashchange'].forEach(t =>
+                window.addEventListener(t, () => window.__reelsbar.postRoute()));
+            ['pushState', 'replaceState'].forEach(method => {
+                const original = history[method];
+                history[method] = function() {
+                    const result = original.apply(this, arguments);
+                    window.__reelsbar.postRoute();
+                    return result;
+                };
+            });
             // Track field focus so native keys never eat login-form typing.
             ['focusin', 'focusout'].forEach(t =>
                 document.addEventListener(t, () => window.__reelsbar.postEditing(), true));

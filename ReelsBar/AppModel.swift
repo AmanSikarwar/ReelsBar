@@ -7,6 +7,7 @@ final class AppModel {
     var isMuted = true
     var isAutoScrollActive = false
     var isPanelActive = false
+    var isReelsTab = false
     /// Mirrors DOM focus state so the key monitor can guard synchronously.
     var isPageEditing = false
 
