@@ -32,7 +32,7 @@ struct ReelsBarPanel: View {
                 .padding(.horizontal, 8)
             }
         }
-        .frame(width: 375, height: 667)
+        .frame(width: 375, height: 812)
         .ignoresSafeArea()
     }
 }

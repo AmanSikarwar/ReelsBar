@@ -2,7 +2,7 @@ import Foundation
 import WebKit
 
 enum ReelsUserScript {
-    /// CSS that strips Instagram's non-video chrome so the reel fills the panel.
+    /// CSS that preserves Instagram's chrome and hides only install-app links.
     static let css = """
     /* Global reset of Instagram padding so the feed spans the full panel */
     html, body {
@@ -11,25 +11,9 @@ enum ReelsUserScript {
         background: #000 !important;
     }
 
-    /* Hide scrollbars for a native-app feel */
-    ::-webkit-scrollbar {
-        display: none;
-    }
-
-    /* Top header / banner, bottom nav bars, side columns */
-    header, nav, footer,
-    [role="banner"], [role="navigation"], [role="contentinfo"],
-    [aria-label="Navigation"],
-    /* Search overlays and dialogs that are not the login flow */
-    [role="dialog"]:not([data-reelsbar-keep]),
-    /* "Get the app" / App Store promotion blocks */
+    /* Hide only Instagram's install-app links. */
     a[href*="apps.apple.com"],
-    a[href*="play.google.com"],
-    div[class*="LoginButton"],
-    div[class*="download"],
-    /* Story tray and suggestion rails above the feed */
-    ul[class*="Stories"],
-    section[class*="Suggestions"] {
+    a[href*="play.google.com"] {
         display: none !important;
     }
 

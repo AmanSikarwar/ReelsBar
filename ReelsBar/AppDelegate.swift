@@ -21,7 +21,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
         self.statusItem = statusItem
 
         popover.behavior = .transient
-        popover.contentSize = NSSize(width: 375, height: 667)
+        popover.contentSize = NSSize(width: 375, height: 812)
         popover.contentViewController = NSHostingController(
             rootView: ReelsBarPanel().environment(appModel)
         )
