@@ -193,6 +193,7 @@ final class AppModel {
 
     private func handleScrollWheel(_ event: NSEvent) -> NSEvent? {
         guard isPanelActive else { return event }
+        guard abs(event.scrollingDeltaY) > abs(event.scrollingDeltaX) else { return event }
 
         if !scrollGestureHandled {
             accumulatedScrollDeltaY += event.scrollingDeltaY

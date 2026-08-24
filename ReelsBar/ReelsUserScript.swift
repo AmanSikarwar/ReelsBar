@@ -186,6 +186,11 @@ enum ReelsUserScript {
                         const item = this._reelItem(target, feed);
                         item.scrollIntoView({ behavior: 'smooth', block: 'start' });
                         setTimeout(() => {
+                            if (item.isConnected) {
+                                const settledFeedTop = feed === document.scrollingElement
+                                    ? 0 : feed.getBoundingClientRect().top;
+                                feed.scrollTop += item.getBoundingClientRect().top - settledFeedTop;
+                            }
                             this._scrolling = false;
                         }, 400);
                     } else {
