@@ -11,9 +11,9 @@ A lightweight macOS menu bar app for browsing Instagram Reels in a mobile-sized 
 - **Muted by default** — playback always starts silent (including after reloads and SPA navigations); toggle audio from the panel's speaker button or the `M` key. The state survives hide/show cycles.
 - **Keyboard driven** — global and local shortcuts (see table below); letter-key actions are suppressed while you're typing in Instagram's login form.
 - **Reel-by-reel scrolling** — a deliberate vertical trackpad gesture or mouse-wheel notch advances exactly one reel; momentum is absorbed instead of leaving the feed between videos.
-- **Auto-scroll engine** — advances to the next reel when the current video emits its `ended` event, with a 120-second fallback timer for stalled playback. An "Auto" badge shows on the panel while enabled.
+- **Auto-scroll engine** — advances to the next reel when the current video emits its `ended` event (native owns the advance, exactly once), with a 30-second fallback timer for stalled/looping playback. An "Auto" badge shows on the panel while enabled.
 - **Battery friendly** — when the panel closes or the app deactivates, all videos pause, audio is muted, and timers are suspended. Idle CPU with the panel closed measures ~0%.
-- **Agent app** — `LSUIElement` is enabled, so ReelsBar runs entirely from the menu bar with no Dock icon or App Switcher entry.
+- **Agent app** — `LSUIElement` is enabled, so ReelsBar runs entirely from the menu bar with no Dock icon or App Switcher entry. Left-click the icon (or ⌘⇧R) to toggle; right-click (or Ctrl-click) for Show/Hide and Quit.
 
 ## Keyboard shortcuts
 
@@ -25,7 +25,7 @@ A lightweight macOS menu bar app for browsing Instagram Reels in a mobile-sized 
 | M | Panel | Mute / unmute |
 | A | Panel | Toggle auto-scroll |
 | F | Reels tab | Toggle reel-only 9:16 mode and hide Instagram's bottom bar |
-| L, L | Panel | Like the active reel; press L again to unlike |
+| L, L | Panel | Like the active reel: first press arms, second press (same reel, within ~0.5s) likes; press L again to unlike |
 
 ## Getting started
 
@@ -69,12 +69,12 @@ The native ↔ web boundary is the `window.__reelsbar` bridge: native code calls
 
 ## Security & privacy
 
-- **App Sandbox** is enabled with only `com.apple.security.network.client` (outgoing connections); no file, camera, or microphone access.
+- **App Sandbox** is enabled with only `com.apple.security.network.client` (outgoing connections); no file, camera, or microphone access. Batch loading is purely in-page (no synthetic input events, which the sandbox would deny).
 - The app ships no analytics and stores nothing outside the sandboxed web view data store (Instagram cookies/session).
 - Developed with ad-hoc signing ("Sign to Run Locally"); re-sign with a Developer ID certificate for distribution.
 
 ## Known limitations
 
 - Instagram's DOM is undocumented and changes frequently. The CSS selectors, the like-button lookup, and the feed-scroller heuristics in `ReelsUserScript.swift` are best-effort and may need retuning if Instagram updates its web client.
-- The like action (`L`, `L`) simulates a click on the visible reel's Like button; press `L` again to unlike. It can't bypass Instagram's login walls or bot detection.
+- The like action (`L`, `L`) simulates a click on the visible reel's Like button: first press arms, second press on the same reel confirms; press `L` again to unlike. It can't bypass Instagram's login walls or bot detection.
 - WKWebView blocks unmuted autoplay, which is why playback always starts silent — this doubles as the mute-by-default policy.
