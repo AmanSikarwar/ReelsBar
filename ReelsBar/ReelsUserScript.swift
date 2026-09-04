@@ -248,8 +248,12 @@ enum ReelsUserScript {
                     const current = this._activeVideo(videos);
                     if (!current) return;
                     const feed = this._scrollParent(current);
+                    // Document-scrolled layouts have no meaningful reel-item
+                    // siblings (every item's ancestor chain ends at <body>),
+                    // so rely purely on position-based video targeting there.
                     const more = this._adjacentVideo(direction, videos, current)
-                        || this._adjacentItem(direction, feed, current);
+                        || (feed !== document.scrollingElement
+                            && this._adjacentItem(direction, feed, current));
                     if (!more) return;
                     this._pendingScrollDirection = 0;
                     this._scrollFeed(direction);
@@ -263,13 +267,19 @@ enum ReelsUserScript {
                     const current = this._activeVideo(videos);
                     if (!current) return;
                     const feed = this._scrollParent(current);
+                    // Document-scrolled layout (overflow visible everywhere,
+                    // scrollingElement does the scrolling): _reelItem would
+                    // collapse to <body> and sibling walks are meaningless,
+                    // so target the video element itself by position.
+                    const isDocScroll = feed === document.scrollingElement;
                     const target = this._adjacentVideo(direction, videos, current);
-                    const nextItem = target
+                    const nextItem = (target || isDocScroll)
                         ? null : this._adjacentItem(direction, feed, current);
                     this._scrolling = true;
                     if (target) {
                         this._pendingScrollDirection = 0;
-                        this._scrollToItem(this._reelItem(target, feed), feed);
+                        this._scrollToItem(
+                            isDocScroll ? target : this._reelItem(target, feed), feed);
                         console.log('[reelsbar] scroll', direction, 'media ready');
                     } else if (nextItem) {
                         // Advance to the neighbouring reel item even though
@@ -287,21 +297,31 @@ enum ReelsUserScript {
                             this._scrolling = false;
                             this._resumePendingScroll();
                         }, 400);
-                        // Instagram serves reels in batches: ask native to
-                        // emulate a real flick until the next reel mounts
+                        // Instagram serves reels in batches: coax its loader
+                        // with in-page gestures until the next reel mounts
                         // rather than reloading the page.
                         this._awaitMore(direction);
                     }
                 },
                 _scrollToItem(item, feed) {
+                    if (feed === document.scrollingElement) {
+                        // Snap via the window: adjusting
+                        // documentElement.scrollTop is unreliable for
+                        // scrollIntoView-corrected offsets in WKWebView.
+                        item.scrollIntoView({ behavior: 'smooth', block: 'start' });
+                        setTimeout(() => {
+                            if (item.isConnected) {
+                                window.scrollBy(0, item.getBoundingClientRect().top);
+                            }
+                            this._scrolling = false;
+                        }, 400);
+                        return;
+                    }
                     item.scrollIntoView({ behavior: 'smooth', block: 'start' });
                     setTimeout(() => {
                         if (item.isConnected) {
-                            const settledFeedTop =
-                                feed === document.scrollingElement
-                                    ? 0 : feed.getBoundingClientRect().top;
-                            feed.scrollTop +=
-                                item.getBoundingClientRect().top - settledFeedTop;
+                            feed.scrollTop += item.getBoundingClientRect().top
+                                - feed.getBoundingClientRect().top;
                         }
                         this._scrolling = false;
                     }, 400);
