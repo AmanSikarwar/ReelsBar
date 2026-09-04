@@ -22,11 +22,15 @@ enum ReelsUserScript {
         display: none !important;
     }
 
-    /* Snap assist: landings computed in JS target video tops, so declare
-       the same snap points to the page. Proximity (not mandatory) only
-       tidies residual drift — it never hijacks gestures or fights jumps. */
+    /* Snap assist: our landings target snap points, so declare them to
+       the page. Mandatory makes between-reel rest states unstable: any
+       scroll — ours or native — must settle on a reel. */
     html.reelsbar-reel-mode .reelsbar-reel-feed {
-        scroll-snap-type: y proximity !important;
+        scroll-snap-type: y mandatory !important;
+    }
+
+    html.reelsbar-reel-mode .reelsbar-reel-feed > * {
+        scroll-snap-align: start !important;
     }
 
     html.reelsbar-reel-mode .reelsbar-reel-feed video {
@@ -272,49 +276,66 @@ enum ReelsUserScript {
                     }
                     this._jumping = true;
                     const feed = this._scrollParent(target);
+                    const isDoc = feed === document.scrollingElement;
                     // Aim at reel-ITEM tops on inner feeds: they are the
-                    // scroller's snap points, so landings never fight it.
-                    const dest = (feed === document.scrollingElement)
-                        ? target : (this._reelItem(target, feed) || target);
-                    const snap = () => {
-                        if (!dest.isConnected) return;
-                        const t = dest.getBoundingClientRect();
-                        // Force truly instant jumps: page CSS may set
-                        // scroll-behavior:smooth, which would turn every
-                        // scrollTo/scrollTop into an abortable animation.
+                    // scroller's snap points.
+                    const dest = isDoc ? target : (this._reelItem(target, feed) || target);
+                    const pos = () => isDoc ? window.scrollY : feed.scrollTop;
+                    const residual = () => {
+                        if (!dest.isConnected) return null;
+                        if (isDoc) return dest.getBoundingClientRect().top;
+                        return dest.getBoundingClientRect().top - feed.getBoundingClientRect().top;
+                    };
+                    const correct = () => {
+                        const r = residual();
+                        if (r === null || Math.abs(r) <= 2) return true;
+                        // Force truly instant corrections: page CSS may set
+                        // scroll-behavior:smooth, turning them into
+                        // abortable animations.
                         [document.documentElement, document.body, feed].forEach(el => {
                             if (el && el.style) {
                                 el.style.setProperty('scroll-behavior', 'auto', 'important');
                             }
                         });
-                        if (feed === document.scrollingElement) {
-                            window.scrollTo(0, window.scrollY + t.top);
-                        } else {
-                            feed.scrollTop += t.top - feed.getBoundingClientRect().top;
-                        }
+                        if (isDoc) window.scrollTo(0, window.scrollY + r);
+                        else feed.scrollTop += r;
+                        return false;
                     };
-                    snap();
                     console.log('[reelsbar] jump dir=' + direction);
-                    // Re-verify: re-mounts or the page's own snap logic can
-                    // undo the landing shortly after. Re-snap while the old
-                    // video still dominates, then release.
-                    let checks = 0;
-                    const verifyTimer = setInterval(() => {
-                        checks += 1;
-                        let settled = true;
-                        try {
-                            if (this._activeVideo() === current && dest.isConnected) {
-                                snap();
-                                settled = false;
-                                console.log('[reelsbar] jump corrected dir='
-                                    + direction + ' pass=' + checks);
+                    correct();
+                    // Closed loop: wait for motion to settle, correct any
+                    // residual, repeat. Converges regardless of headers,
+                    // re-mounts, or snap offsets.
+                    let lastTop = pos(), stable = 0, rounds = 0, polls = 0;
+                    const timer = setInterval(() => {
+                        polls += 1;
+                        const cur = pos();
+                        if (cur !== lastTop) { lastTop = cur; stable = 0; }
+                        else { stable += 1; }
+                        if (stable >= 2) {
+                            rounds += 1;
+                            let settled = true;
+                            try {
+                                const r = residual();
+                                if (r !== null && Math.abs(r) > 2 && rounds <= 4) {
+                                    correct();
+                                    settled = false;
+                                    stable = 0;
+                                    console.log('[reelsbar] jump correcting dir='
+                                        + direction + ' round=' + rounds);
+                                }
+                            } catch (e) { settled = true; }
+                            if (settled || rounds > 4) {
+                                clearInterval(timer);
+                                this._jumping = false;
+                                console.log('[reelsbar] jump settled dir=' + direction);
                             }
-                        } catch (e) { settled = true; }
-                        if (settled || checks >= 3) {
-                            clearInterval(verifyTimer);
+                        }
+                        if (polls > 40) {
+                            clearInterval(timer);
                             this._jumping = false;
                         }
-                    }, 250);
+                    }, 80);
                 },
                 _videos() {
                     return [...document.querySelectorAll('video')]
