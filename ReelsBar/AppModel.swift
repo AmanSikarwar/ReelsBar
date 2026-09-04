@@ -154,8 +154,6 @@ final class AppModel {
         suspendAutoScrollTimer()
         audioWatchdog?.invalidate()
         audioWatchdog = nil
-        scrollGestureResetTask?.cancel()
-        finishScrollGesture()
     }
 
     /// Restore readiness and the user's prior mute choice when visible again.
@@ -187,12 +185,13 @@ final class AppModel {
 
     // MARK: - Local input monitoring (active panel only)
 
+    // NOTE: wheel/trackpad scrolling intentionally flows through to the
+    // page untouched. Reel advancement only sticks when Instagram's own
+    // index moves, and that happens solely on trusted gesture input —
+    // intercepting the wheel and jumping programmatically gets reverted
+    // (yank-back to the tracked reel). One-reel-per-flick paging comes
+    // from mandatory scroll-snap CSS injected into the page instead.
     private var localKeyMonitor: Any?
-    private var localScrollMonitor: Any?
-    private var scrollGestureHandled = false
-    private var accumulatedScrollDeltaY = 0.0
-    private var scrollGestureResetTask: Task<Void, Never>?
-    private static let preciseScrollThreshold = 24.0
 
     func startInputMonitoring() {
         if localKeyMonitor == nil {
@@ -245,69 +244,10 @@ final class AppModel {
                 }
             }
         }
-        if localScrollMonitor == nil {
-            localScrollMonitor = NSEvent.addLocalMonitorForEvents(matching: .scrollWheel) { [weak self] event in
-                MainActor.assumeIsolated {
-                    self?.handleScrollWheel(event) ?? event
-                }
-            }
-        }
     }
 
-    /// Maps accumulated scroll delta to reel direction. `inverted` mirrors
-    /// `NSEvent.isDirectionInvertedFromDevice` so "push content up" means
-    /// next reel regardless of the user's natural-scroll setting.
-    private static func scrollDirection(
-        accumulatedDeltaY: Double, precise: Bool, inverted: Bool
-    ) -> Int? {
-        let threshold = precise ? preciseScrollThreshold : 1
-        let adjusted = inverted ? -accumulatedDeltaY : accumulatedDeltaY
-        guard abs(adjusted) >= threshold else { return nil }
-        return adjusted < 0 ? 1 : -1
-    }
-
-    private func handleScrollWheel(_ event: NSEvent) -> NSEvent? {
-        guard isPanelActive else { return event }
-        // Off the Reels tab (e.g. login page) the page owns scrolling.
-        guard isReelsTab else { return event }
-        guard abs(event.scrollingDeltaY) > abs(event.scrollingDeltaX) else { return event }
-
-        if !scrollGestureHandled {
-            accumulatedScrollDeltaY += event.scrollingDeltaY
-            if let direction = Self.scrollDirection(
-                accumulatedDeltaY: accumulatedScrollDeltaY,
-                precise: event.hasPreciseScrollingDeltas,
-                inverted: event.isDirectionInvertedFromDevice
-            ) {
-                scrollGestureHandled = true
-                direction > 0 ? scrollNext() : scrollPrev()
-            }
-        }
-        scheduleScrollGestureReset(for: event)
-        return nil
-    }
-
-    private func scheduleScrollGestureReset(for event: NSEvent) {
-        scrollGestureResetTask?.cancel()
-        if event.momentumPhase.contains(.ended)
-            || event.momentumPhase.contains(.cancelled) {
-            finishScrollGesture()
-            return
-        }
-        scrollGestureResetTask = Task { @MainActor [weak self] in
-            try? await Task.sleep(for: .milliseconds(300))
-            guard !Task.isCancelled else { return }
-            self?.finishScrollGesture()
-        }
-    }
-
-    private func finishScrollGesture() {
-        scrollGestureHandled = false
-        accumulatedScrollDeltaY = 0
-    }
 
     // MARK: - Auto-scroll timer
-
     private var autoScrollTimer: Timer?
 
     func suspendAutoScrollTimer() {

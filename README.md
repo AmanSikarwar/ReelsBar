@@ -10,7 +10,7 @@ A lightweight macOS menu bar app for browsing Instagram Reels in a mobile-sized 
 - **Instagram UI preserved** — injected CSS hides only Instagram's install-app links.
 - **Muted by default** — playback always starts silent (including after reloads and SPA navigations); toggle audio from the panel's speaker button or the `M` key. The state survives hide/show cycles.
 - **Keyboard driven** — global and local shortcuts (see table below); letter-key actions are suppressed while you're typing in Instagram's login form.
-- **Reel-by-reel scrolling** — a deliberate vertical trackpad gesture or mouse-wheel notch advances exactly one reel; momentum is absorbed instead of leaving the feed between videos.
+- **Reel-by-reel scrolling** — trackpad and mouse-wheel input flows to the page natively (the only input Instagram's reel index follows) with mandatory snap paging: one reel per flick, enforced even on fast flings. Arrow keys advance discretely.
 - **Auto-scroll engine** — advances to the next reel when the current video emits its `ended` event (native owns the advance, exactly once), with a 30-second fallback timer for stalled/looping playback. An "Auto" badge shows on the panel while enabled.
 - **Battery friendly** — when the panel closes or the app deactivates, all videos pause, audio is muted, and timers are suspended. Idle CPU with the panel closed measures ~0%.
 - **Agent app** — `LSUIElement` is enabled, so ReelsBar runs entirely from the menu bar with no Dock icon or App Switcher entry. Left-click the icon (or ⌘⇧R) to toggle; right-click (or Ctrl-click) for Show/Hide and Quit.

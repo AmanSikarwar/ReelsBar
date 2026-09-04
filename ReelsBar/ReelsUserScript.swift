@@ -22,15 +22,17 @@ enum ReelsUserScript {
         display: none !important;
     }
 
-    /* Snap assist: our landings target snap points, so declare them to
-       the page. Mandatory makes between-reel rest states unstable: any
-       scroll — ours or native — must settle on a reel. */
+    /* Snap paging: wheel/trackpad input flows to the page natively (the
+       only input that moves Instagram's reel index), and these rules turn
+       it into strict one-reel-per-flick paging. snap-stop:always forces a
+       stop at every snap point even on fast flings. */
     html.reelsbar-reel-mode .reelsbar-reel-feed {
         scroll-snap-type: y mandatory !important;
     }
 
     html.reelsbar-reel-mode .reelsbar-reel-feed > * {
         scroll-snap-align: start !important;
+        scroll-snap-stop: always !important;
     }
 
     html.reelsbar-reel-mode .reelsbar-reel-feed video {
