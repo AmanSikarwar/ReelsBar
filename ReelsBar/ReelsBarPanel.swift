@@ -2,6 +2,8 @@ import SwiftUI
 
 struct ReelsBarPanel: View {
     @Environment(AppModel.self) private var appModel
+    // TEMP-DIAG: on-panel diagnostics. Remove once scroll is fixed.
+    private let showDebug = true
 
     var body: some View {
         ZStack(alignment: .top) {
@@ -32,6 +34,24 @@ struct ReelsBarPanel: View {
                     }
                     .padding(.horizontal, 8)
                 }
+            }
+
+            // TEMP-DIAG: always visible (even off the Reels tab) so a
+            // screenshot reveals native state + bridge liveness.
+            if showDebug {
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("tab:\(appModel.isReelsTab ? "Y" : "N") active:\(appModel.isPanelActive ? "Y" : "N") last:\(appModel.lastAction)")
+                    Text("bridge: \(appModel.bridgeInfo)")
+                    Button("Ping bridge") { appModel.pingBridge() }
+                        .buttonStyle(.bordered)
+                        .controlSize(.mini)
+                }
+                .font(.system(size: 10, design: .monospaced))
+                .padding(6)
+                .background(.black.opacity(0.75), in: RoundedRectangle(cornerRadius: 6))
+                .foregroundStyle(.white)
+                .padding(8)
+                .frame(maxWidth: .infinity, alignment: .leading)
             }
         }
         .frame(

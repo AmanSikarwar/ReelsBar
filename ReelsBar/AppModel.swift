@@ -15,6 +15,10 @@ final class AppModel {
     var reelModeDidChange: ((Bool) -> Void)?
     /// Mirrors DOM focus state so the key monitor can guard synchronously.
     var isPageEditing = false
+    // TEMP-DIAG: surfaced by the on-panel debug overlay.
+    var lastAction = "none"
+    var bridgeInfo = "unknown"
+    private var actionCount = 0
 
     /// Strong: the web view (and its Instagram session) must survive
     /// SwiftUI view recreations and popover close/open cycles. No cycle:
@@ -45,14 +49,36 @@ final class AppModel {
     func scrollNext() {
         // Manual advancement restarts the stall window.
         lastVideoEndedAt = Date()
+        actionCount += 1
+        lastAction = "next #\(actionCount)"
         print("[ReelsBar] scroll next (tab=\(isReelsTab) active=\(isPanelActive))")
         runJS("window.__reelsbar && window.__reelsbar.scrollNext()")
     }
 
     func scrollPrev() {
         lastVideoEndedAt = Date()
+        actionCount += 1
+        lastAction = "prev #\(actionCount)"
         print("[ReelsBar] scroll prev (tab=\(isReelsTab) active=\(isPanelActive))")
         runJS("window.__reelsbar && window.__reelsbar.scrollPrev()")
+    }
+
+    // TEMP-DIAG: round-trip liveness check of the JS bridge.
+    func pingBridge() {
+        bridgeInfo = "pinging…"
+        webView?.evaluateJavaScript(
+            "typeof window.__reelsbar === 'object' ? 'alive v=' + window.__reelsbar._videos().length : 'DEAD'"
+        ) { [weak self] result, error in
+            Task { @MainActor in
+                if let error {
+                    self?.bridgeInfo = "err"
+                    print("[ReelsBar] ping error: \(error.localizedDescription)")
+                } else {
+                    self?.bridgeInfo = "\(result ?? "nil")"
+                    print("[ReelsBar] ping: \(result ?? "nil")")
+                }
+            }
+        }
     }
 
     func togglePlay() {
