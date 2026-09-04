@@ -44,6 +44,14 @@ struct ReelsWebView: NSViewRepresentable {
         weak var appModel: AppModel?
         private var pendingDiagWorkItem: DispatchWorkItem?
 
+        func webView(_ webView: WKWebView, didFail navigation: WKNavigation!, withError error: Error) {
+            print("[ReelsBar] navigation failed: \(error.localizedDescription)")
+        }
+
+        func webView(_ webView: WKWebView, didFailProvisionalNavigation navigation: WKNavigation!, withError error: Error) {
+            print("[ReelsBar] provisional navigation failed: \(error.localizedDescription)")
+        }
+
         func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
             // Instagram is an SPA; enforce the audio policy after every navigation.
             appModel?.enforceDefaultAudioPolicy()
