@@ -225,7 +225,14 @@ enum ReelsUserScript {
                 },
                 _resumePendingScroll() {
                     const direction = this._pendingScrollDirection;
-                    if (!direction || this._scrolling || !this._adjacentVideo(direction)) return;
+                    if (!direction || this._scrolling) return;
+                    const videos = this._videos();
+                    const current = this._activeVideo(videos);
+                    if (!current) return;
+                    const feed = this._scrollParent(current);
+                    const more = this._adjacentVideo(direction, videos, current)
+                        || this._adjacentItem(direction, feed, current);
+                    if (!more) return;
                     this._pendingScrollDirection = 0;
                     this._scrollFeed(direction);
                 },
@@ -237,21 +244,23 @@ enum ReelsUserScript {
                     const videos = this._videos();
                     const current = this._activeVideo(videos);
                     if (!current) return;
-                    const target = this._adjacentVideo(direction, videos, current);
                     const feed = this._scrollParent(current);
+                    const target = this._adjacentVideo(direction, videos, current);
+                    const nextItem = target
+                        ? null : this._adjacentItem(direction, feed, current);
                     this._scrolling = true;
                     if (target) {
                         this._pendingScrollDirection = 0;
-                        const item = this._reelItem(target, feed);
-                        item.scrollIntoView({ behavior: 'smooth', block: 'start' });
-                        setTimeout(() => {
-                            if (item.isConnected) {
-                                const settledFeedTop = feed === document.scrollingElement
-                                    ? 0 : feed.getBoundingClientRect().top;
-                                feed.scrollTop += item.getBoundingClientRect().top - settledFeedTop;
-                            }
-                            this._scrolling = false;
-                        }, 400);
+                        this._scrollToItem(this._reelItem(target, feed), feed);
+                        console.log('[reelsbar] scroll', direction, 'media ready');
+                    } else if (nextItem) {
+                        // Advance to the neighbouring reel item even though
+                        // its <video> is not mounted yet; Instagram mounts
+                        // media as the item approaches the viewport.
+                        this._pendingScrollDirection = 0;
+                        this._scrollToItem(nextItem, feed);
+                        console.log('[reelsbar] scroll', direction,
+                            '(item ahead, media pending)');
                     } else {
                         this._pendingScrollDirection = direction;
                         const distance = feed.clientHeight || window.innerHeight;
@@ -260,11 +269,36 @@ enum ReelsUserScript {
                             this._scrolling = false;
                             this._resumePendingScroll();
                         }, 400);
-                        // Instagram serves reels in batches: nudge its loader
-                        // until the next reel mounts rather than reloading.
+                        // Instagram serves reels in batches: ask native to
+                        // emulate a real flick until the next reel mounts
+                        // rather than reloading the page.
                         this._awaitMore(direction);
                     }
-                    console.log('[reelsbar] scroll direction', direction, 'target', !!target);
+                },
+                _scrollToItem(item, feed) {
+                    item.scrollIntoView({ behavior: 'smooth', block: 'start' });
+                    setTimeout(() => {
+                        if (item.isConnected) {
+                            const settledFeedTop =
+                                feed === document.scrollingElement
+                                    ? 0 : feed.getBoundingClientRect().top;
+                            feed.scrollTop +=
+                                item.getBoundingClientRect().top - settledFeedTop;
+                        }
+                        this._scrolling = false;
+                    }, 400);
+                },
+                _adjacentItem(direction, feed, currentVideo) {
+                    const item = this._reelItem(currentVideo, feed);
+                    let sibling = direction > 0
+                        ? item.nextElementSibling : item.previousElementSibling;
+                    while (sibling
+                           && sibling.getBoundingClientRect().height < 100) {
+                        sibling = direction > 0
+                            ? sibling.nextElementSibling
+                            : sibling.previousElementSibling;
+                    }
+                    return sibling;
                 },
                 _remainingAhead(videos = this._videos(), current = this._activeVideo(videos)) {
                     if (!current) return 0;
@@ -275,55 +309,94 @@ enum ReelsUserScript {
                         return other.top + other.height / 2 > currentCenter + 1;
                     }).length;
                 },
-                // Coax Instagram's batch loader into fetching more reels.
-                // aggressive: allowed to glide to the feed's true bottom
-                // (used while the user is actively waiting for the next reel).
-                _probeLoader(feed, aggressive) {
-                    if (!feed || this._scrolling) return;
-                    const maxScroll = feed.scrollHeight - feed.clientHeight;
-                    if (maxScroll <= 0) return;
-                    const gap = maxScroll - feed.scrollTop;
-                    const probe = Math.min(72, Math.max(28,
-                        Math.round(feed.clientHeight * 0.08)));
-                    if (gap > probe) {
-                        if (!aggressive) return;
-                        // Parked shy of the end: dip to the bottom so the
-                        // loader sentinel intersects, then snap back.
-                        const origin = feed.scrollTop;
-                        feed.scrollTo({ top: maxScroll, behavior: 'smooth' });
-                        setTimeout(() => {
-                            if (!this._scrolling && feed.isConnected
-                                && Math.abs(feed.scrollTop - maxScroll) < 4) {
-                                feed.scrollTop = origin;
+                // Sandbox-safe loader coaxing: purely in-page. Fire a
+                // synthetic touch swipe so Instagram's own gesture handler
+                // advances its internal reel index (which gates the next
+                // batch fetch on the mobile web client), plus a small
+                // programmatic nudge of the feed scroller so scroll-linked
+                // loaders observe movement. No synthetic CGEvents: those are
+                // swallowed by our own scroll monitor and denied by the App
+                // Sandbox.
+                _requestMore(gentle) {
+                    const now = Date.now();
+                    if (now - (this._lastNeedMore || 0) < 900) return;
+                    const current = this._activeVideo();
+                    if (!current) return;
+                    this._lastNeedMore = now;
+                    this._syntheticSwipe();
+                    try {
+                        const feed = this._scrollParent(current);
+                        if (feed && feed !== document.scrollingElement) {
+                            const probe = gentle ? 24 : 64;
+                            const maxScroll = feed.scrollHeight - feed.clientHeight;
+                            if (maxScroll > 0) {
+                                const edge = gentle
+                                    ? Math.min(feed.scrollTop + probe, maxScroll)
+                                    : maxScroll;
+                                if (Math.abs(edge - feed.scrollTop) > 1) {
+                                    feed.scrollTo({ top: edge, behavior: 'smooth' });
+                                }
                             }
-                        }, 420);
-                    } else {
-                        // Already at the bottom: jiggle upward and settle back
-                        // so Instagram's scroll handlers observe movement at
-                        // the end of the list and fire the fetch.
-                        const jiggled = Math.max(0, feed.scrollTop - probe);
-                        if (jiggled === feed.scrollTop) return;
-                        feed.scrollTop = jiggled;
-                        setTimeout(() => {
-                            if (!this._scrolling && feed.isConnected
-                                && feed.scrollTop === jiggled) {
-                                feed.scrollTop = maxScroll;
+                        }
+                    } catch (e) {}
+                },
+                // Emulate a finger drag up the centre of the viewport.
+                // Guarded: Touch/TouchEvent don't exist in every WKWebView.
+                _syntheticSwipe() {
+                    if (this._swiping) return;
+                    if (typeof Touch === 'undefined' || typeof TouchEvent === 'undefined') {
+                        console.log('[reelsbar] swipe: touch APIs unavailable');
+                        return;
+                    }
+                    try {
+                        const target = document.elementFromPoint(
+                            window.innerWidth / 2, window.innerHeight / 2);
+                        if (!target) {
+                            console.log('[reelsbar] swipe: no target');
+                            return;
+                        }
+                        const identifier = Date.now() % 100000;
+                        const x = Math.round(window.innerWidth / 2);
+                        const yStart = Math.round(window.innerHeight * 0.78);
+                        const yEnd = Math.round(window.innerHeight * 0.30);
+                        const dispatch = (type, y, inTouches) => {
+                            const touch = new Touch({
+                                identifier, target,
+                                clientX: x, clientY: y,
+                                radiusX: 2, radiusY: 2,
+                                rotationAngle: 0, force: 1 });
+                            const touches = inTouches ? [touch] : [];
+                            target.dispatchEvent(new TouchEvent(type, {
+                                bubbles: true, cancelable: true,
+                                touches, targetTouches: touches,
+                                changedTouches: [touch] }));
+                        };
+                        this._swiping = true;
+                        dispatch('touchstart', yStart, true);
+                        let y = yStart;
+                        const stride = Math.max(4, (yStart - yEnd) / 12);
+                        const timer = setInterval(() => {
+                            y -= stride;
+                            if (y <= yEnd) {
+                                clearInterval(timer);
+                                dispatch('touchend', y, false);
+                                this._swiping = false;
+                                console.log('[reelsbar] swipe done');
+                            } else {
+                                dispatch('touchmove', y, true);
                             }
-                        }, 170);
+                        }, 16);
+                    } catch (err) {
+                        this._swiping = false;
+                        console.log('[reelsbar] swipe failed:', String(err));
                     }
                 },
-                // Poll while the user waits on the last loaded reel. Probes
-                // every 500ms for up to ~8s; reload is the final fallback.
+                // Poll while the user waits on the last loaded reel.
+                // Reload is only a last resort after ~8s of nudging.
                 _awaitMore(direction) {
                     clearInterval(this._loadRetryTimer);
                     let attempts = 0;
                     this._loadRetryTimer = setInterval(() => {
-                        if (this._adjacentVideo(direction)) {
-                            clearInterval(this._loadRetryTimer);
-                            this._loadRetryTimer = null;
-                            this._resumePendingScroll();
-                            return;
-                        }
                         const videos = this._videos();
                         const current = this._activeVideo(videos);
                         if (!current || ++attempts > 16) {
@@ -336,7 +409,24 @@ enum ReelsUserScript {
                             }
                             return;
                         }
-                        this._probeLoader(this._scrollParent(current), true);
+                        const feed = this._scrollParent(current);
+                        const more = this._adjacentVideo(direction, videos, current)
+                            || this._adjacentItem(direction, feed, current);
+                        if (more) {
+                            clearInterval(this._loadRetryTimer);
+                            this._loadRetryTimer = null;
+                            console.log('[reelsbar] more reels arrived');
+                            this._resumePendingScroll();
+                            return;
+                        }
+                        console.log('[reelsbar] waiting dir=' + direction,
+                            'v=', videos.length,
+                            'items=', feed.children.length,
+                            'sh=', feed.scrollHeight, 'ch=', feed.clientHeight,
+                            'apis=', ('Touch' in window), ('PointerEvent' in window),
+                            'playing=', (() => { const v = this._activeVideo();
+                                return v ? !v.paused : false; })());
+                        this._requestMore(false);
                     }, 500);
                 },
                 // Instagram-style prefetch: while idling within a couple of
@@ -347,10 +437,8 @@ enum ReelsUserScript {
                     const videos = this._videos();
                     const current = this._activeVideo(videos);
                     if (!current || this._remainingAhead(videos, current) > 1) return;
-                    const feed = this._scrollParent(current);
-                    const maxScroll = feed.scrollHeight - feed.clientHeight;
-                    if (maxScroll - feed.scrollTop > 96) return;
-                    this._probeLoader(feed, false);
+                    console.log('[reelsbar] prefetch: near loaded edge');
+                    this._requestMore(true);
                 },
                 _startPrefetchLoop() {
                     if (this._prefetchTimer) return;
