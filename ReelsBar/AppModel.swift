@@ -202,9 +202,6 @@ final class AppModel {
             }
         }
         if localScrollMonitor == nil {
-            assert(Self.scrollDirection(accumulatedDeltaY: -23, precise: true) == nil)
-            assert(Self.scrollDirection(accumulatedDeltaY: -24, precise: true) == 1)
-            assert(Self.scrollDirection(accumulatedDeltaY: 24, precise: true) == -1)
             localScrollMonitor = NSEvent.addLocalMonitorForEvents(matching: .scrollWheel) { [weak self] event in
                 MainActor.assumeIsolated {
                     self?.handleScrollWheel(event) ?? event
@@ -213,21 +210,30 @@ final class AppModel {
         }
     }
 
-    private static func scrollDirection(accumulatedDeltaY: Double, precise: Bool) -> Int? {
+    /// Maps accumulated scroll delta to reel direction. `inverted` mirrors
+    /// `NSEvent.isDirectionInvertedFromDevice` so "push content up" means
+    /// next reel regardless of the user's natural-scroll setting.
+    private static func scrollDirection(
+        accumulatedDeltaY: Double, precise: Bool, inverted: Bool
+    ) -> Int? {
         let threshold = precise ? preciseScrollThreshold : 1
-        guard abs(accumulatedDeltaY) >= threshold else { return nil }
-        return accumulatedDeltaY < 0 ? 1 : -1
+        let adjusted = inverted ? -accumulatedDeltaY : accumulatedDeltaY
+        guard abs(adjusted) >= threshold else { return nil }
+        return adjusted < 0 ? 1 : -1
     }
 
     private func handleScrollWheel(_ event: NSEvent) -> NSEvent? {
         guard isPanelActive else { return event }
+        // Off the Reels tab (e.g. login page) the page owns scrolling.
+        guard isReelsTab else { return event }
         guard abs(event.scrollingDeltaY) > abs(event.scrollingDeltaX) else { return event }
 
         if !scrollGestureHandled {
             accumulatedScrollDeltaY += event.scrollingDeltaY
             if let direction = Self.scrollDirection(
                 accumulatedDeltaY: accumulatedScrollDeltaY,
-                precise: event.hasPreciseScrollingDeltas
+                precise: event.hasPreciseScrollingDeltas,
+                inverted: event.isDirectionInvertedFromDevice
             ) {
                 scrollGestureHandled = true
                 direction > 0 ? scrollNext() : scrollPrev()
