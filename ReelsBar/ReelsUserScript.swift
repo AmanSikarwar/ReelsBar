@@ -22,22 +22,9 @@ enum ReelsUserScript {
         display: none !important;
     }
 
-    /* Snap paging: wheel/trackpad input flows to the page natively (the
-       only input that moves Instagram's reel index), and these rules turn
-       it into strict one-reel-per-flick paging. snap-stop:always forces a
-       stop at every snap point even on fast flings. */
-    html.reelsbar-reel-mode .reelsbar-reel-feed {
-        scroll-snap-type: y mandatory !important;
-    }
-
-    html.reelsbar-reel-mode .reelsbar-reel-feed > * {
-        scroll-snap-align: start !important;
-        scroll-snap-stop: always !important;
-    }
-
-    html.reelsbar-reel-mode .reelsbar-reel-feed video {
-        scroll-snap-align: start !important;
-    }
+    /* NOTE: no scroll-snap rules of our own. The feed has native snap
+       behavior and competing snap points pin the scroll between reels,
+       which also starves the batch loader. Native input + native snap. */
 
     html.reelsbar-reel-mode .reelsbar-reel-feed {
         height: 100% !important;
