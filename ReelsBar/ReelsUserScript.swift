@@ -22,6 +22,17 @@ enum ReelsUserScript {
         display: none !important;
     }
 
+    /* Snap assist: landings computed in JS target video tops, so declare
+       the same snap points to the page. Proximity (not mandatory) only
+       tidies residual drift — it never hijacks gestures or fights jumps. */
+    html.reelsbar-reel-mode .reelsbar-reel-feed {
+        scroll-snap-type: y proximity !important;
+    }
+
+    html.reelsbar-reel-mode .reelsbar-reel-feed video {
+        scroll-snap-align: start !important;
+    }
+
     html.reelsbar-reel-mode .reelsbar-reel-feed {
         height: 100% !important;
         min-height: 100% !important;
@@ -244,17 +255,26 @@ enum ReelsUserScript {
                     };
                     snap();
                     console.log('[reelsbar] jump dir=' + direction);
-                    // Verify once layout settles: if a re-mount shifted us
-                    // and the same video still dominates, snap again.
-                    setTimeout(() => {
+                    // Re-verify: re-mounts or the page's own snap logic can
+                    // undo the landing shortly after. Re-snap while the old
+                    // video still dominates, then release.
+                    let checks = 0;
+                    const verifyTimer = setInterval(() => {
+                        checks += 1;
+                        let settled = true;
                         try {
                             if (this._activeVideo() === current && target.isConnected) {
                                 snap();
-                                console.log('[reelsbar] jump corrected dir=' + direction);
+                                settled = false;
+                                console.log('[reelsbar] jump corrected dir='
+                                    + direction + ' pass=' + checks);
                             }
-                        } catch (e) {}
-                        this._jumping = false;
-                    }, 150);
+                        } catch (e) { settled = true; }
+                        if (settled || checks >= 3) {
+                            clearInterval(verifyTimer);
+                            this._jumping = false;
+                        }
+                    }, 250);
                 },
                 _videos() {
                     return [...document.querySelectorAll('video')]
