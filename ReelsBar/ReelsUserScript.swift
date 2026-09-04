@@ -228,6 +228,14 @@ enum ReelsUserScript {
                         if (!target.isConnected) return;
                         const t = target.getBoundingClientRect();
                         const feed = this._scrollParent(target);
+                        // Force truly instant jumps: the page's CSS may set
+                        // scroll-behavior:smooth, which would turn every
+                        // scrollTo/scrollTop into an abortable animation.
+                        [document.documentElement, document.body, feed].forEach(el => {
+                            if (el && el.style) {
+                                el.style.setProperty('scroll-behavior', 'auto', 'important');
+                            }
+                        });
                         if (feed === document.scrollingElement) {
                             window.scrollTo(0, window.scrollY + t.top);
                         } else {
