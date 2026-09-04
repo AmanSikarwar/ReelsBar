@@ -138,12 +138,13 @@ enum ReelsUserScript {
                 _watchVideoEnds() {
                     if (this._endedHook) return;
                     // 'ended' does not bubble, so listen in the capture phase.
+                    // Only report: native owns advancement (videoDidEnd),
+                    // so ended -> advance happens exactly once.
                     this._endedHook = (ev) => {
                         if (!this._autoScroll || !(ev.target instanceof HTMLVideoElement)) return;
                         try {
                             window.webkit.messageHandlers.reelsbar.postMessage('videoEnded');
                         } catch (e) {}
-                        this.scrollNext();
                     };
                     document.addEventListener('ended', this._endedHook, true);
                 },

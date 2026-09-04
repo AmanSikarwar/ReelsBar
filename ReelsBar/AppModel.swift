@@ -36,10 +36,13 @@ final class AppModel {
     // MARK: - Keyboard actions
 
     func scrollNext() {
+        // Manual advancement restarts the stall window.
+        lastVideoEndedAt = Date()
         runJS("window.__reelsbar && window.__reelsbar.scrollNext()")
     }
 
     func scrollPrev() {
+        lastVideoEndedAt = Date()
         runJS("window.__reelsbar && window.__reelsbar.scrollPrev()")
     }
 
@@ -91,24 +94,31 @@ final class AppModel {
     // MARK: - Auto-scroll engine
 
     /// How long without a native `ended` event before the fallback timer advances.
-    static let autoScrollFallbackInterval: TimeInterval = 120
+    static let autoScrollFallbackInterval: TimeInterval = 30
 
     private(set) var lastVideoEndedAt: Date?
 
+    /// Single owner of ended-driven advancement (the page only reports;
+    /// see `_watchVideoEnds`). Falls back to the stall timer for looping
+    /// videos that never emit `ended`.
     func videoDidEnd() {
         lastVideoEndedAt = Date()
+        guard isAutoScrollActive, isPanelActive else { return }
+        scrollNext()
     }
 
     private func armAutoScrollFallbackTimer() {
         suspendAutoScrollTimer()
         guard isPanelActive else { return }
-        autoScrollTimer = Timer.scheduledTimer(withTimeInterval: Self.autoScrollFallbackInterval, repeats: true) { [weak self] _ in
+        let timer = Timer(timeInterval: Self.autoScrollFallbackInterval, repeats: true) { [weak self] _ in
             Task { @MainActor in
                 guard let self, self.isAutoScrollActive, self.isPanelActive else { return }
                 let stalled = self.lastVideoEndedAt.map { Date().timeIntervalSince($0) > Self.autoScrollFallbackInterval } ?? true
                 if stalled { self.scrollNext() }
             }
         }
+        autoScrollTimer = timer
+        RunLoop.main.add(timer, forMode: .common)
     }
 
     /// Re-assert mute-by-default on every page load or reload.
