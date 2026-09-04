@@ -42,23 +42,28 @@ struct ReelsWebView: NSViewRepresentable {
 
     final class Coordinator: NSObject, WKNavigationDelegate, WKScriptMessageHandler {
         weak var appModel: AppModel?
+        private var pendingDiagWorkItem: DispatchWorkItem?
 
         func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
             // Instagram is an SPA; enforce the audio policy after every navigation.
             appModel?.enforceDefaultAudioPolicy()
-            // Dump a diagnostic snapshot once the SPA settles.
-            DispatchQueue.main.asyncAfter(deadline: .now() + 4) { [weak self, weak webView] in
+            // Dump a diagnostic snapshot once the SPA settles. Coalesced:
+            // rapid successive navigations cancel the pending snapshot so
+            // only the latest one evaluates.
+            pendingDiagWorkItem?.cancel()
+            let workItem = DispatchWorkItem { [weak webView] in
                 Task { @MainActor in
-                    guard let self, let webView else { return }
+                    guard let webView else { return }
                     webView.evaluateJavaScript("window.__reelsbar ? window.__reelsbar.diag() : 'no-bridge'") { result, error in
                         Task { @MainActor in
                             if let error { print("[ReelsBar] diag error: \(error.localizedDescription)") }
                             else { print("[ReelsBar] diag: \(result ?? "nil")") }
-                            _ = self
                         }
                     }
                 }
             }
+            pendingDiagWorkItem = workItem
+            DispatchQueue.main.asyncAfter(deadline: .now() + 4, execute: workItem)
         }
 
         func userContentController(_ userContentController: WKUserContentController,

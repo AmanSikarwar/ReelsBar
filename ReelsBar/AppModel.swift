@@ -166,11 +166,13 @@ final class AppModel {
 
     private func startAudioWatchdog() {
         audioWatchdog?.invalidate()
-        audioWatchdog = Timer.scheduledTimer(withTimeInterval: 1, repeats: true) { [weak self] _ in
+        let timer = Timer(timeInterval: 1, repeats: true) { [weak self] _ in
             Task { @MainActor in
                 self?.runJS("window.__reelsbar && window.__reelsbar.applyMuted()")
             }
         }
+        audioWatchdog = timer
+        RunLoop.main.add(timer, forMode: .common)
     }
 
     // MARK: - Local input monitoring (active panel only)
@@ -282,7 +284,7 @@ final class AppModel {
             finishScrollGesture()
             return
         }
-        scrollGestureResetTask = Task { [weak self] in
+        scrollGestureResetTask = Task { @MainActor [weak self] in
             try? await Task.sleep(for: .milliseconds(300))
             guard !Task.isCancelled else { return }
             self?.finishScrollGesture()
@@ -296,7 +298,7 @@ final class AppModel {
 
     // MARK: - Auto-scroll timer
 
-    var autoScrollTimer: Timer?
+    private var autoScrollTimer: Timer?
 
     func suspendAutoScrollTimer() {
         autoScrollTimer?.invalidate()
