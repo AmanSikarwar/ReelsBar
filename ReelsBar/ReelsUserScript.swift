@@ -474,9 +474,40 @@ enum ReelsUserScript {
                             { type: 'editing', value: this.isEditing() });
                     } catch (e) {}
                 },
+                // TEMP-TELEMETRY: scroll/load observability. Remove once the
+                // batch-loader trigger is understood.
+                _trackScroll(attempts = 0) {
+                    const feed = this._scrollParent(this._activeVideo());
+                    if (!feed) {
+                        if (attempts < 10) {
+                            setTimeout(() => this._trackScroll(attempts + 1), 2000);
+                        }
+                        return;
+                    }
+                    const isDoc = feed === document.scrollingElement;
+                    const pos = () => isDoc ? window.scrollY : feed.scrollTop;
+                    const maxPos = () => isDoc
+                        ? document.scrollingElement.scrollHeight - window.innerHeight
+                        : feed.scrollHeight - feed.clientHeight;
+                    let lastTop = pos();
+                    setInterval(() => {
+                        if (document.hidden) return;
+                        const top = pos();
+                        if (top === lastTop) return;
+                        lastTop = top;
+                        const videos = this._videos();
+                        const cur = this._activeVideo(videos);
+                        const remaining = maxPos() - top;
+                        console.log('[reelsbar] tele top=' + Math.round(top)
+                            + ' max=' + Math.round(maxPos())
+                            + ' v=' + videos.length
+                            + ' vh=' + window.innerHeight
+                            + ' activeTop=' + (cur ? Math.round(cur.getBoundingClientRect().top) : 'x')
+                            + (remaining < window.innerHeight * 1.5 ? ' NEAREND' : ''));
+                    }, 800);
+                },
                 _reelsRoute: null,
-                postRoute() {
-                    const path = location.pathname;
+                postRoute() {                    const path = location.pathname;
                     const reels = path === '/reels' || path.startsWith('/reels/');
                     if (reels === this._reelsRoute) return;
                     this._reelsRoute = reels;
@@ -498,6 +529,7 @@ enum ReelsUserScript {
             }
             window.__reelsbar.postEditing();
             window.__reelsbar.postRoute();
+            window.__reelsbar._trackScroll();
             window.addEventListener('resize', () => {
                 if (window.__reelsbar._reelMode) {
                     window.__reelsbar._markBottomNavigation();
