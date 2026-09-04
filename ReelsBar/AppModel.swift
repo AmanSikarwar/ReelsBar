@@ -16,10 +16,17 @@ final class AppModel {
     /// Mirrors DOM focus state so the key monitor can guard synchronously.
     var isPageEditing = false
 
-    weak var webView: WKWebView?
+    /// Strong: the web view (and its Instagram session) must survive
+    /// SwiftUI view recreations and popover close/open cycles. No cycle:
+    /// the Coordinator only holds a weak appModel.
+    var webView: WKWebView?
 
     func runJS(_ js: String) {
-        webView?.evaluateJavaScript(js)
+        webView?.evaluateJavaScript(js) { _, error in
+            if let error {
+                print("[ReelsBar] js error: \(error.localizedDescription) :: \(js.prefix(80))")
+            }
+        }
     }
 
     // MARK: - Audio
