@@ -513,6 +513,78 @@ enum ReelsUserScript {
                             + (remaining < window.innerHeight * 1.5 ? ' NEAREND' : ''));
                     }, 800);
                 },
+                // Interaction blip: a touchstart immediately aborted by
+                // touchcancel (plus pointerdown/pointercancel). Trips
+                // touch-gated page systems such as the infinite loader's
+                // init/prefetch, while being incapable of tapping, clicking,
+                // or scrolling anything. Rate-limited.
+                _touchBlip() {
+                    try {
+                        if (typeof Touch === 'undefined' || typeof TouchEvent === 'undefined') return;
+                        const now = Date.now();
+                        if (now - (this._lastBlip || 0) < 5000) return;
+                        this._lastBlip = now;
+                        const feed = this._scrollParent(this._activeVideo()) || document.body;
+                        const r = feed.getBoundingClientRect();
+                        const x = Math.round(r.left + r.width / 2);
+                        const y = Math.round(r.top + Math.min(r.height - 40, Math.max(40, r.height / 2)));
+                        const target = document.elementFromPoint(x, y) || feed;
+                        const id = 7;
+                        const mkT = () => new Touch({
+                            identifier: id, target,
+                            clientX: x, clientY: y,
+                            radiusX: 2, radiusY: 2,
+                            rotationAngle: 0, force: 1 });
+                        const t = mkT();
+                        target.dispatchEvent(new TouchEvent('touchstart', {
+                            bubbles: true, cancelable: true, view: window,
+                            touches: [t], targetTouches: [t], changedTouches: [t] }));
+                        if (typeof PointerEvent !== 'undefined') {
+                            target.dispatchEvent(new PointerEvent('pointerdown', {
+                                bubbles: true, cancelable: true, view: window,
+                                pointerId: id, pointerType: 'touch', isPrimary: true,
+                                clientX: x, clientY: y, buttons: 1 }));
+                        }
+                        const c = mkT();
+                        target.dispatchEvent(new TouchEvent('touchcancel', {
+                            bubbles: true, cancelable: true, view: window,
+                            touches: [], targetTouches: [], changedTouches: [c] }));
+                        if (typeof PointerEvent !== 'undefined') {
+                            target.dispatchEvent(new PointerEvent('pointercancel', {
+                                bubbles: true, cancelable: true, view: window,
+                                pointerId: id, pointerType: 'touch', isPrimary: true,
+                                clientX: x, clientY: y, buttons: 0 }));
+                        }
+                        console.log('[reelsbar] touch blip');
+                    } catch (e) {}
+                },
+                // Watches the batch end: if stuck near it with no growth,
+                // kick the loader with a blip. One kick per height.
+                _watchLoader() {
+                    if (this._loaderTimer) return;
+                    this._loaderH = 0;
+                    this._loaderStale = 0;
+                    this._loaderBlipH = -1;
+                    this._loaderTimer = setInterval(() => {
+                        if (document.hidden || !this._reelsRoute) return;
+                        const feed = this._scrollParent(this._activeVideo());
+                        if (!feed || feed === document.scrollingElement) return;
+                        const max = feed.scrollHeight - feed.clientHeight;
+                        if (max <= 0) return;
+                        if (max - feed.scrollTop > feed.clientHeight) {
+                            this._loaderStale = 0;
+                            return;
+                        }
+                        if (feed.scrollHeight === this._loaderH) this._loaderStale += 1;
+                        else this._loaderStale = 0;
+                        this._loaderH = feed.scrollHeight;
+                        if (this._loaderStale >= 2 && feed.scrollHeight !== this._loaderBlipH) {
+                            this._loaderBlipH = feed.scrollHeight;
+                            this._touchBlip();
+                            console.log('[reelsbar] loader kick at end');
+                        }
+                    }, 3000);
+                },
                 _reelsRoute: null,
                 postRoute() {                    const path = location.pathname;
                     const reels = path === '/reels' || path.startsWith('/reels/');
@@ -537,6 +609,9 @@ enum ReelsUserScript {
             window.__reelsbar.postEditing();
             window.__reelsbar.postRoute();
             window.__reelsbar._trackScroll();
+            window.__reelsbar._watchLoader();
+            // Arm touch-gated page systems early.
+            setTimeout(() => { try { window.__reelsbar._touchBlip(); } catch (e) {} }, 3000);
             window.addEventListener('resize', () => {
                 if (window.__reelsbar._reelMode) {
                     window.__reelsbar._markBottomNavigation();
