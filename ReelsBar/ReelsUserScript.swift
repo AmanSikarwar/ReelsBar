@@ -230,10 +230,16 @@ enum ReelsUserScript {
                     )[0];
                 },
                 _goNav(direction) {
+                    // Single-flight: rapid clicks mid-animation strand the
+                    // feed between reels. Swallow while locked (true = handled).
+                    if (this._jumping) return true;
                     const btn = this._navButton(direction);
                     if (!btn) return false;
+                    this._jumping = true;
+                    this._pendingLike = null;
                     btn.click();
                     console.log('[reelsbar] nav click dir=' + direction);
+                    setTimeout(() => { this._jumping = false; }, 800);
                     return true;
                 },
                 _jump(direction) {
@@ -265,11 +271,15 @@ enum ReelsUserScript {
                         return;
                     }
                     this._jumping = true;
+                    const feed = this._scrollParent(target);
+                    // Aim at reel-ITEM tops on inner feeds: they are the
+                    // scroller's snap points, so landings never fight it.
+                    const dest = (feed === document.scrollingElement)
+                        ? target : (this._reelItem(target, feed) || target);
                     const snap = () => {
-                        if (!target.isConnected) return;
-                        const t = target.getBoundingClientRect();
-                        const feed = this._scrollParent(target);
-                        // Force truly instant jumps: the page's CSS may set
+                        if (!dest.isConnected) return;
+                        const t = dest.getBoundingClientRect();
+                        // Force truly instant jumps: page CSS may set
                         // scroll-behavior:smooth, which would turn every
                         // scrollTo/scrollTop into an abortable animation.
                         [document.documentElement, document.body, feed].forEach(el => {
@@ -293,7 +303,7 @@ enum ReelsUserScript {
                         checks += 1;
                         let settled = true;
                         try {
-                            if (this._activeVideo() === current && target.isConnected) {
+                            if (this._activeVideo() === current && dest.isConnected) {
                                 snap();
                                 settled = false;
                                 console.log('[reelsbar] jump corrected dir='
