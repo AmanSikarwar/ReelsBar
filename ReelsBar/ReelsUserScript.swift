@@ -29,22 +29,27 @@ enum ReelsUserScript {
         padding-bottom: 0 !important;
     }
 
-    /* Main article should fill the viewport edge to edge */
-    main, article, [role="main"] {
+    /* Main column should fill the narrow panel edge to edge */
+    main, [role="main"] {
         margin: 0 !important;
         padding: 0 !important;
         width: 100% !important;
         max-width: 100% !important;
     }
 
-    /* The reels feed scroller: full-bleed, vertical paging */
-    div[style*="overflow"], div[data-visualcompletion],
-    div[class*="Scroll"] {
+    /* Narrow only the marked reel scroller/item, not every scrollable div
+       on the page (the old broad selector broke login and dialogs). */
+    html.reelsbar-reel-mode .reelsbar-reel-feed {
         max-width: 100% !important;
     }
 
     video {
         object-fit: contain !important;
+    }
+
+    /* Full-bleed active reel in reel mode. */
+    html.reelsbar-reel-mode .reelsbar-reel-feed video {
+        object-fit: cover !important;
     }
 
     """
