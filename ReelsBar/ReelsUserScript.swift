@@ -587,8 +587,14 @@ enum ReelsUserScript {
                 };
             });
             // Track field focus so native keys never eat login-form typing.
-            ['focusin', 'focusout'].forEach(t =>
+            // NOTE: the mirror is async (postMessage -> @MainActor), so a
+            // keystroke landing in the same runloop as a focus change can
+            // still race. Refresh on every focus/blur/input/key event to
+            // keep the window as tight as possible.
+            ['focusin', 'focusout', 'focus', 'blur', 'input'].forEach(t =>
                 document.addEventListener(t, () => window.__reelsbar.postEditing(), true));
+            document.addEventListener('keydown',
+                () => window.__reelsbar.postEditing(), true);
 
             // Forward page console output to native for diagnostics.
             const nativeLog = (...args) => {
