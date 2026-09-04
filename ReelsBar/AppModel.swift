@@ -91,6 +91,13 @@ final class AppModel {
         reelModeDidChange?(enabled)
     }
 
+    /// Re-assert the current reel mode after (re)loads and re-activation so
+    /// a fresh page context can't desync from native state.
+    func enforceReelModePolicy() {
+        runJS("window.__reelsbar && window.__reelsbar.setReelMode(\(isReelMode))")
+        reelModeDidChange?(isReelMode)
+    }
+
     // MARK: - Auto-scroll engine
 
     /// How long without a native `ended` event before the fallback timer advances.
@@ -125,6 +132,7 @@ final class AppModel {
     func enforceDefaultAudioPolicy() {
         isMuted = true
         runJS("window.__reelsbar && window.__reelsbar.setMuted(true)")
+        enforceReelModePolicy()
     }
 
     /// Pause playback, silence audio, and suspend background work while hidden.
@@ -146,6 +154,7 @@ final class AppModel {
         isPanelActive = true
         print("[ReelsBar] panel activated")
         runJS("window.__reelsbar && (window.__reelsbar.setMuted(\(isMuted)), window.__reelsbar.resumeActive())")
+        enforceReelModePolicy()
         resumeAutoScrollTimer()
         startAudioWatchdog()
     }

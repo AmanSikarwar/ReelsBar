@@ -75,6 +75,9 @@ enum ReelsUserScript {
                 _reelMode: true,
                 setReelMode(on) {
                     this._reelMode = !!on;
+                    try {
+                        sessionStorage.setItem('reelsbarReelMode', this._reelMode ? '1' : '0');
+                    } catch (e) {}
                     document.documentElement.classList.toggle(
                         'reelsbar-reel-mode', this._reelMode);
                     if (this._reelMode) {
@@ -88,10 +91,19 @@ enum ReelsUserScript {
                     }
                 },
                 _markReelFeed() {
-                    const feed = this._scrollParent(this._activeVideo());
-                    if (!feed || feed === document.scrollingElement) return;
+                    const video = this._activeVideo();
+                    if (!video) return;
+                    const feed = this._scrollParent(video);
+                    if (!feed) return;
                     document.querySelectorAll('.reelsbar-reel-feed').forEach(element =>
                         element.classList.remove('reelsbar-reel-feed'));
+                    if (feed === document.scrollingElement) {
+                        // Document-scrolled layout: size the active reel item
+                        // itself so the 9:16 CSS still has a target.
+                        const item = video.closest('article') || this._reelItem(video, document.body);
+                        if (item) item.classList.add('reelsbar-reel-feed');
+                        return;
+                    }
                     feed.classList.add('reelsbar-reel-feed');
                 },
                 _markBottomNavigation() {
@@ -566,7 +578,14 @@ enum ReelsUserScript {
             sessionStorage.removeItem('reelsbarPendingScroll');
             window.__reelsbar.applyMuted();
             window.__reelsbar.observe();
-            window.__reelsbar.setReelMode(true);
+            // Restore the persisted reel-mode choice (default on) instead of
+            // forcing reel mode: a reload must not desync from native state.
+            try {
+                const saved = sessionStorage.getItem('reelsbarReelMode');
+                window.__reelsbar.setReelMode(saved === null ? true : saved === '1');
+            } catch (e) {
+                window.__reelsbar.setReelMode(true);
+            }
             window.__reelsbar._startPrefetchLoop();
             window.__reelsbar.postEditing();
             window.__reelsbar.postRoute();
