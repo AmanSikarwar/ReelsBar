@@ -166,23 +166,26 @@ final class AppModel {
                     }
                     switch event.keyCode {
                     case 125: // Down — next reel
-                        guard !editing else { return event }
+                        guard !editing, self.isReelsTab else { return event }
                         self.scrollNext()
                         return nil
                     case 126: // Up — previous reel
-                        guard !editing else { return event }
+                        guard !editing, self.isReelsTab else { return event }
                         self.scrollPrev()
                         return nil
                     case 49: // Space — play/pause (swallow the page's space-scroll)
-                        guard !editing else { return event }
+                        guard !editing, self.isReelsTab else { return event }
+                        guard !event.isARepeat else { return nil }
                         self.togglePlay()
                         return nil
                     case 46: // M
-                        guard !editing else { return event }
+                        guard !editing, self.isReelsTab else { return event }
+                        guard !event.isARepeat else { return nil }
                         self.toggleMute()
                         return nil
                     case 0: // A
-                        guard !editing else { return event }
+                        guard !editing, self.isReelsTab else { return event }
+                        guard !event.isARepeat else { return nil }
                         self.toggleAutoScroll()
                         return nil
                     case 3: // F — reel-only mode
