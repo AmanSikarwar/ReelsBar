@@ -1,5 +1,6 @@
 import SwiftUI
 import WebKit
+import CoreGraphics
 
 enum ReelsWebViewFactory {
     static let reelsURL = URL(string: "https://www.instagram.com/reels/")!
@@ -9,7 +10,9 @@ enum ReelsWebViewFactory {
 
     static func makeConfiguration() -> WKWebViewConfiguration {
         let config = WKWebViewConfiguration()
-        config.applicationNameForUserAgent = iPhoneUserAgent
+        // NOTE: customUserAgent on the WKWebView itself is the single source
+        // of truth (applicationNameForUserAgent only appends to the default
+        // macOS UA, so setting a full iPhone string there would corrupt it).
         ReelsUserScript.inject(into: config.userContentController)
         return config
     }
@@ -79,12 +82,69 @@ struct ReelsWebView: NSViewRepresentable {
                 case "log":
                     let value = dict["value"] as? String ?? ""
                     return { print("[ReelsBar:page] \(value)") }
+                case "needMore":
+                    guard let webView = message.webView else { return nil }
+                    let gentle = dict["gentle"] as? Bool ?? false
+                    return { [weak self] in self?.nudgeForMore(webView, gentle: gentle) }
                 default:
                     return nil
                 }
             }()
             guard let handled else { return }
             Task { @MainActor in handled() }
+        }
+
+        /// Emulates a short trackpad flick so Instagram's feed loader sees
+        /// genuine scroll input (with real momentum/rubber-band behavior)
+        /// and fetches the next batch of reels. `gentle` keeps the gesture
+        /// small while the user is still watching the penultimate reel.
+        private var lastNudgeAt = Date.distantPast
+        private func nudgeForMore(_ webView: WKWebView, gentle: Bool) {
+            guard let window = webView.window, window.isVisible else { return }
+            guard Date().timeIntervalSince(lastNudgeAt) > 0.6 else { return }
+            lastNudgeAt = Date()
+
+            // Aim the events at the centre of the panel window. NSWindow
+            // frames use bottom-left screen coordinates; CGEvent locations
+            // are measured from the top of the primary display.
+            let frame = window.frame
+            guard let primaryScreen = NSScreen.screens.first else { return }
+            var location = CGPoint()
+            location.x = frame.midX
+            location.y = primaryScreen.frame.maxY - frame.midY
+
+            let steps: Int = gentle ? 4 : 12
+            let pixelsPerStep: Int32 = gentle ? 20 : 30
+            let pid = ProcessInfo.processInfo.processIdentifier
+
+            print("[ReelsBar] nudge gentle=\(gentle) at \(location)")
+            for step in 0..<steps {
+                let delay = Double(step) * 0.03
+                DispatchQueue.main.asyncAfter(deadline: .now() + delay) { [weak self] in
+                    guard window.isVisible else { return }
+                    self?.postScrollStep(pid: pid, location: location,
+                                         pixels: -pixelsPerStep)
+                }
+            }
+        }
+
+        /// Posts one synthetic pixel-precision scroll-wheel tick to this
+        /// app's own process, routed through the normal input pipeline.
+        private func postScrollStep(pid: pid_t, location: CGPoint, pixels: Int32) {
+            let stateID = CGEventSourceStateID.hidSystemState
+            guard let source = CGEventSource(stateID: stateID) else { return }
+            let wheelCount = UInt32(1)
+            let unit = CGScrollEventUnit.pixel
+            let deltaX = Int32(0)
+            let deltaZ = Int32(0)
+            guard let event = CGEvent(scrollWheelEvent2Source: source,
+                                      units: unit,
+                                      wheelCount: wheelCount,
+                                      wheel1: pixels,
+                                      wheel2: deltaX,
+                                      wheel3: deltaZ) else { return }
+            event.location = location
+            event.postToPid(pid)
         }
     }
 }
