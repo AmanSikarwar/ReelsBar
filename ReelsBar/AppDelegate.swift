@@ -15,7 +15,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
                 accessibilityDescription: "ReelsBar"
             )
             button.target = self
-            button.action = #selector(togglePopover)
+            button.action = #selector(statusButtonClicked)
+            // Left-click toggles; right-click (or Ctrl-click) opens the menu.
+            button.sendAction(on: [.leftMouseUp, .rightMouseUp])
             button.toolTip = "ReelsBar (⌘⇧R)"
         }
         self.statusItem = statusItem
@@ -34,7 +36,50 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
         hotkeyManager = HotkeyManager { [weak self] in
             self?.togglePopover()
         }
-        hotkeyManager?.register()
+        if hotkeyManager?.register() == false {
+            showHotkeyFailureAlert()
+        }
+    }
+
+    @objc private func statusButtonClicked() {
+        guard let event = NSApp.currentEvent else {
+            togglePopover()
+            return
+        }
+        if event.type == .rightMouseUp
+            || event.modifierFlags.contains(.control) {
+            showStatusMenu()
+        } else {
+            togglePopover()
+        }
+    }
+
+    private func showStatusMenu() {
+        let menu = NSMenu()
+        let toggleTitle = popover.isShown ? "Hide ReelsBar" : "Show ReelsBar"
+        let toggleItem = NSMenuItem(title: toggleTitle, action: #selector(togglePopover), keyEquivalent: "")
+        toggleItem.target = self
+        menu.addItem(toggleItem)
+        menu.addItem(.separator())
+        let quitItem = NSMenuItem(title: "Quit ReelsBar", action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q")
+        menu.addItem(quitItem)
+        statusItem?.menu = menu
+        statusItem?.button?.performClick(nil)
+        // Detach so left-click toggles again instead of reopening the menu.
+        statusItem?.menu = nil
+    }
+
+    private func showHotkeyFailureAlert() {
+        let alert = NSAlert()
+        alert.messageText = "ReelsBar hotkey unavailable"
+        alert.informativeText = "⌘⇧R could not be registered (it may be taken by another app). Use the menu bar icon or right-click menu instead."
+        alert.alertStyle = .warning
+        alert.addButton(withTitle: "OK")
+        // Run async: the agent app may not be active yet at launch.
+        DispatchQueue.main.async {
+            NSApp.activate(ignoringOtherApps: true)
+            alert.runModal()
+        }
     }
 
     @objc private func togglePopover() {
