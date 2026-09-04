@@ -22,9 +22,16 @@ enum ReelsUserScript {
         display: none !important;
     }
 
-    /* NOTE: no scroll-snap rules of our own. The feed has native snap
-       behavior and competing snap points pin the scroll between reels,
-       which also starves the batch loader. Native input + native snap. */
+    /* Paging snap: the page's own snap doesn't quantize wheel input, so
+       declare snap points at reel-item tops (narrow form only: container
+       type + direct-children alignment, no competing video-level rules). */
+    html.reelsbar-reel-mode .reelsbar-reel-feed {
+        scroll-snap-type: y mandatory !important;
+    }
+
+    html.reelsbar-reel-mode .reelsbar-reel-feed > * {
+        scroll-snap-align: start !important;
+    }
 
     html.reelsbar-reel-mode .reelsbar-reel-feed {
         height: 100% !important;
@@ -476,32 +483,32 @@ enum ReelsUserScript {
                 },
                 // TEMP-TELEMETRY: scroll/load observability. Remove once the
                 // batch-loader trigger is understood.
-                _trackScroll(attempts = 0) {
-                    const feed = this._scrollParent(this._activeVideo());
-                    if (!feed) {
-                        if (attempts < 10) {
-                            setTimeout(() => this._trackScroll(attempts + 1), 2000);
-                        }
-                        return;
-                    }
-                    const isDoc = feed === document.scrollingElement;
-                    const pos = () => isDoc ? window.scrollY : feed.scrollTop;
-                    const maxPos = () => isDoc
-                        ? document.scrollingElement.scrollHeight - window.innerHeight
-                        : feed.scrollHeight - feed.clientHeight;
-                    let lastTop = pos();
+                _trackScroll() {
+                    let feed = null;
+                    let lastTop = NaN;
                     setInterval(() => {
                         if (document.hidden) return;
+                        const videos = this._videos();
+                        const cur = this._activeVideo(videos);
+                        // (Re)bind to a real feed once content mounts; the
+                        // document is only a fallback, never the target.
+                        const f = cur ? this._scrollParent(cur) : null;
+                        if (f && f !== document.scrollingElement) feed = f;
+                        else if (!feed) feed = f || document.scrollingElement;
+                        const isDoc = feed === document.scrollingElement;
+                        const pos = () => isDoc ? window.scrollY : feed.scrollTop;
+                        const maxPos = () => isDoc
+                            ? document.scrollingElement.scrollHeight - window.innerHeight
+                            : feed.scrollHeight - feed.clientHeight;
                         const top = pos();
                         if (top === lastTop) return;
                         lastTop = top;
-                        const videos = this._videos();
-                        const cur = this._activeVideo(videos);
                         const remaining = maxPos() - top;
                         console.log('[reelsbar] tele top=' + Math.round(top)
                             + ' max=' + Math.round(maxPos())
                             + ' v=' + videos.length
                             + ' vh=' + window.innerHeight
+                            + ' feed=' + (isDoc ? 'DOC' : String(feed.className).slice(0, 12))
                             + ' activeTop=' + (cur ? Math.round(cur.getBoundingClientRect().top) : 'x')
                             + (remaining < window.innerHeight * 1.5 ? ' NEAREND' : ''));
                     }, 800);
