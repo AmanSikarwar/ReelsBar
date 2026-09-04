@@ -183,11 +183,14 @@ enum ReelsUserScript {
                     if (!visible) return;
                     if (visible.paused) visible.play().catch(() => {}); else visible.pause();
                 },
+                // Wheel/keyboard actuation is a synthetic finger swipe so
+                // Instagram's own gesture handlers move, snap, and load
+                // reels natively. No scroll-position math on our side.
                 scrollNext() {
-                    this._scrollFeed(1);
+                    this._swipe(1);
                 },
                 scrollPrev() {
-                    this._scrollFeed(-1);
+                    this._swipe(-1);
                 },
                 _videos() {
                     return [...document.querySelectorAll('video')]
@@ -223,268 +226,82 @@ enum ReelsUserScript {
                     }
                     return item?.parentElement === feed ? item : video;
                 },
-                _adjacentVideo(direction, videos = this._videos(), current = this._activeVideo(videos)) {
-                    if (!current) return null;
-                    const currentRect = current.getBoundingClientRect();
-                    const currentCenter = currentRect.top + currentRect.height / 2;
-                    return videos
-                        .filter(video => {
-                            const rect = video.getBoundingClientRect();
-                            const center = rect.top + rect.height / 2;
-                            return direction > 0 ? center > currentCenter + 1 : center < currentCenter - 1;
-                        })
-                        .sort((a, b) => {
-                            const aRect = a.getBoundingClientRect();
-                            const bRect = b.getBoundingClientRect();
-                            const aDistance = Math.abs(aRect.top + aRect.height / 2 - currentCenter);
-                            const bDistance = Math.abs(bRect.top + bRect.height / 2 - currentCenter);
-                            return aDistance - bDistance;
-                        })[0] || null;
-                },
-                _resumePendingScroll() {
-                    const direction = this._pendingScrollDirection;
-                    if (!direction || this._scrolling) return;
-                    const videos = this._videos();
-                    const current = this._activeVideo(videos);
-                    if (!current) return;
-                    const feed = this._scrollParent(current);
-                    // Document-scrolled layouts have no meaningful reel-item
-                    // siblings (every item's ancestor chain ends at <body>),
-                    // so rely purely on position-based video targeting there.
-                    const more = this._adjacentVideo(direction, videos, current)
-                        || (feed !== document.scrollingElement
-                            && this._adjacentItem(direction, feed, current));
-                    if (!more) return;
-                    this._pendingScrollDirection = 0;
-                    this._scrollFeed(direction);
-                },
-                _scrolling: false,
-                _pendingScrollDirection: 0,
-                _scrollFeed(direction) {
-                    if (this._scrolling) return;
-                    this._pendingLike = null;
-                    const videos = this._videos();
-                    const current = this._activeVideo(videos);
-                    if (!current) {
-                        console.log('[reelsbar] scroll ignored: no active video, v=' + videos.length);
-                        return;
-                    }
-                    const feed = this._scrollParent(current);
-                    // Document-scrolled layout (overflow visible everywhere,
-                    // scrollingElement does the scrolling): _reelItem would
-                    // collapse to <body> and sibling walks are meaningless,
-                    // so target the video element itself by position.
-                    const isDocScroll = feed === document.scrollingElement;
-                    const target = this._adjacentVideo(direction, videos, current);
-                    const nextItem = (target || isDocScroll)
-                        ? null : this._adjacentItem(direction, feed, current);
-                    this._scrolling = true;
-                    if (target) {
-                        this._pendingScrollDirection = 0;
-                        this._scrollToItem(
-                            isDocScroll ? target : this._reelItem(target, feed), feed);
-                        console.log('[reelsbar] scroll', direction, 'media ready');
-                    } else if (nextItem) {
-                        // Advance to the neighbouring reel item even though
-                        // its <video> is not mounted yet; Instagram mounts
-                        // media as the item approaches the viewport.
-                        this._pendingScrollDirection = 0;
-                        this._scrollToItem(nextItem, feed);
-                        console.log('[reelsbar] scroll', direction,
-                            '(item ahead, media pending)');
-                    } else {
-                        this._pendingScrollDirection = direction;
-                        const distance = feed.clientHeight || window.innerHeight;
-                        feed.scrollBy({ top: direction * distance, behavior: 'smooth' });
-                        setTimeout(() => {
-                            this._scrolling = false;
-                            this._resumePendingScroll();
-                        }, 400);
-                        // Instagram serves reels in batches: coax its loader
-                        // with in-page gestures until the next reel mounts
-                        // rather than reloading the page.
-                        this._awaitMore(direction);
-                    }
-                },
-                _scrollToItem(item, feed) {
-                    if (feed === document.scrollingElement) {
-                        // Snap via the window: adjusting
-                        // documentElement.scrollTop is unreliable for
-                        // scrollIntoView-corrected offsets in WKWebView.
-                        item.scrollIntoView({ behavior: 'smooth', block: 'start' });
-                        setTimeout(() => {
-                            if (item.isConnected) {
-                                window.scrollBy(0, item.getBoundingClientRect().top);
-                            }
-                            this._scrolling = false;
-                        }, 400);
-                        return;
-                    }
-                    item.scrollIntoView({ behavior: 'smooth', block: 'start' });
-                    setTimeout(() => {
-                        if (item.isConnected) {
-                            feed.scrollTop += item.getBoundingClientRect().top
-                                - feed.getBoundingClientRect().top;
-                        }
-                        this._scrolling = false;
-                    }, 400);
-                },
-                _adjacentItem(direction, feed, currentVideo) {
-                    const item = this._reelItem(currentVideo, feed);
-                    let sibling = direction > 0
-                        ? item.nextElementSibling : item.previousElementSibling;
-                    while (sibling
-                           && sibling.getBoundingClientRect().height < 100) {
-                        sibling = direction > 0
-                            ? sibling.nextElementSibling
-                            : sibling.previousElementSibling;
-                    }
-                    return sibling;
-                },
-                _remainingAhead(videos = this._videos(), current = this._activeVideo(videos)) {
-                    if (!current) return 0;
-                    const rect = current.getBoundingClientRect();
-                    const currentCenter = rect.top + rect.height / 2;
-                    return videos.filter(video => {
-                        const other = video.getBoundingClientRect();
-                        return other.top + other.height / 2 > currentCenter + 1;
-                    }).length;
-                },
-                // Sandbox-safe loader coaxing: purely in-page. Fire a
-                // synthetic touch swipe so Instagram's own gesture handler
-                // advances its internal reel index (which gates the next
-                // batch fetch on the mobile web client), plus a small
-                // programmatic nudge of the feed scroller so scroll-linked
-                // loaders observe movement. No synthetic CGEvents: those are
-                // swallowed by our own scroll monitor and denied by the App
-                // Sandbox.
-                _requestMore(gentle) {
-                    const now = Date.now();
-                    if (now - (this._lastNeedMore || 0) < 900) return;
-                    const current = this._activeVideo();
-                    if (!current) return;
-                    this._lastNeedMore = now;
-                    this._syntheticSwipe();
-                    try {
-                        const feed = this._scrollParent(current);
-                        if (feed && feed !== document.scrollingElement) {
-                            const probe = gentle ? 24 : 64;
-                            const maxScroll = feed.scrollHeight - feed.clientHeight;
-                            if (maxScroll > 0) {
-                                const edge = gentle
-                                    ? Math.min(feed.scrollTop + probe, maxScroll)
-                                    : maxScroll;
-                                if (Math.abs(edge - feed.scrollTop) > 1) {
-                                    feed.scrollTo({ top: edge, behavior: 'smooth' });
-                                }
-                            }
-                        }
-                    } catch (e) {}
-                },
-                // Emulate a finger drag up the centre of the viewport.
-                // Guarded: Touch/TouchEvent don't exist in every WKWebView.
-                _syntheticSwipe() {
+                // Finger-swipe actuation: one call = one reel in `direction`
+                // (1 = next, -1 = previous). Dispatches PointerEvents just
+                // before their TouchEvent counterpart (mirroring real input
+                // order) so the page responds regardless of which API its
+                // handlers listen to. The start target receives the whole
+                // sequence, like implicit capture on a real swipe.
+                // NOTE: synthetic events are untrusted, so they never drive
+                // *native* scrolling themselves — movement comes from the
+                // page's own gesture handlers, which is exactly what we want.
+                _swipe(direction) {
                     if (this._swiping) return;
+                    this._pendingLike = null;
                     if (typeof Touch === 'undefined' || typeof TouchEvent === 'undefined') {
                         console.log('[reelsbar] swipe: touch APIs unavailable');
                         return;
                     }
                     try {
-                        const target = document.elementFromPoint(
-                            window.innerWidth / 2, window.innerHeight / 2);
-                        if (!target) {
-                            console.log('[reelsbar] swipe: no target');
-                            return;
-                        }
-                        const identifier = Date.now() % 100000;
-                        const x = Math.round(window.innerWidth / 2);
-                        const yStart = Math.round(window.innerHeight * 0.78);
-                        const yEnd = Math.round(window.innerHeight * 0.30);
-                        const dispatch = (type, y, inTouches) => {
-                            const touch = new Touch({
-                                identifier, target,
-                                clientX: x, clientY: y,
-                                radiusX: 2, radiusY: 2,
-                                rotationAngle: 0, force: 1 });
-                            const touches = inTouches ? [touch] : [];
+                        const w = window.innerWidth, h = window.innerHeight;
+                        const x = Math.round(w / 2);
+                        // Finger travels opposite the content: next reel =
+                        // finger moves up.
+                        const yStart = Math.round(direction > 0 ? h * 0.72 : h * 0.28);
+                        const yEnd = Math.round(direction > 0 ? h * 0.28 : h * 0.72);
+                        const target = document.elementFromPoint(x, yStart) || document.body;
+                        const id = Date.now() % 100000;
+                        const mkTouch = (y) => new Touch({
+                            identifier: id, target,
+                            clientX: x, clientY: Math.round(y),
+                            radiusX: 2, radiusY: 2,
+                            rotationAngle: 0, force: 1 });
+                        const fireTouch = (type, y, active) => {
+                            const t = mkTouch(y);
                             target.dispatchEvent(new TouchEvent(type, {
-                                bubbles: true, cancelable: true,
-                                touches, targetTouches: touches,
-                                changedTouches: [touch] }));
+                                bubbles: true, cancelable: true, view: window,
+                                touches: active ? [t] : [],
+                                targetTouches: active ? [t] : [],
+                                changedTouches: [t] }));
+                        };
+                        const firePointer = (type, y, active) => {
+                            if (typeof PointerEvent === 'undefined') return;
+                            target.dispatchEvent(new PointerEvent(type, {
+                                bubbles: true, cancelable: true, view: window,
+                                pointerId: id, pointerType: 'touch',
+                                isPrimary: true,
+                                clientX: x, clientY: Math.round(y),
+                                width: 2, height: 2,
+                                pressure: active ? 0.5 : 0,
+                                buttons: active ? 1 : 0 }));
+                        };
+                        const phase = (touchType, pointerType, y, active) => {
+                            firePointer(pointerType, y, active);
+                            fireTouch(touchType, y, active);
                         };
                         this._swiping = true;
-                        dispatch('touchstart', yStart, true);
-                        let y = yStart;
-                        const stride = Math.max(4, (yStart - yEnd) / 12);
+                        phase('touchstart', 'pointerdown', yStart, true);
+                        const steps = 12;
+                        const stride = (yStart - yEnd) / steps;
+                        let i = 0;
                         const timer = setInterval(() => {
-                            y -= stride;
-                            if (y <= yEnd) {
+                            i += 1;
+                            if (i >= steps) {
                                 clearInterval(timer);
-                                dispatch('touchend', y, false);
-                                this._swiping = false;
-                                console.log('[reelsbar] swipe done');
+                                phase('touchmove', 'pointermove', yEnd, true);
+                                phase('touchend', 'pointerup', yEnd, false);
+                                console.log('[reelsbar] swipe done dir=' + direction);
+                                // Hold the lock briefly so momentum from the
+                                // originating wheel gesture can't double-fire.
+                                setTimeout(() => { this._swiping = false; }, 500);
                             } else {
-                                dispatch('touchmove', y, true);
+                                phase('touchmove', 'pointermove', yStart - stride * i, true);
                             }
                         }, 16);
                     } catch (err) {
                         this._swiping = false;
-                        console.log('[reelsbar] swipe failed:', String(err));
+                        console.log('[reelsbar] swipe failed: ' + String(err));
                     }
-                },
-                // Poll while the user waits on the last loaded reel.
-                // Reload is only a last resort after ~8s of nudging.
-                _awaitMore(direction) {
-                    clearInterval(this._loadRetryTimer);
-                    let attempts = 0;
-                    this._loadRetryTimer = setInterval(() => {
-                        const videos = this._videos();
-                        const current = this._activeVideo(videos);
-                        if (!current || ++attempts > 16) {
-                            clearInterval(this._loadRetryTimer);
-                            this._loadRetryTimer = null;
-                            if (attempts > 16) {
-                                sessionStorage.setItem('reelsbarPendingScroll',
-                                    String(direction));
-                                location.reload();
-                            }
-                            return;
-                        }
-                        const feed = this._scrollParent(current);
-                        const more = this._adjacentVideo(direction, videos, current)
-                            || this._adjacentItem(direction, feed, current);
-                        if (more) {
-                            clearInterval(this._loadRetryTimer);
-                            this._loadRetryTimer = null;
-                            console.log('[reelsbar] more reels arrived');
-                            this._resumePendingScroll();
-                            return;
-                        }
-                        console.log('[reelsbar] waiting dir=' + direction,
-                            'v=', videos.length,
-                            'items=', feed.children.length,
-                            'sh=', feed.scrollHeight, 'ch=', feed.clientHeight,
-                            'apis=', ('Touch' in window), ('PointerEvent' in window),
-                            'playing=', (() => { const v = this._activeVideo();
-                                return v ? !v.paused : false; })());
-                        this._requestMore(false);
-                    }, 500);
-                },
-                // Instagram-style prefetch: while idling within a couple of
-                // reels of the loaded edge, keep nudging the loader so the
-                // next batch arrives before it is needed.
-                _prefetchTick() {
-                    if (document.hidden || this._scrolling) return;
-                    const videos = this._videos();
-                    const current = this._activeVideo(videos);
-                    if (!current || this._remainingAhead(videos, current) > 1) return;
-                    console.log('[reelsbar] prefetch: near loaded edge');
-                    this._requestMore(true);
-                },
-                _startPrefetchLoop() {
-                    if (this._prefetchTimer) return;
-                    this._prefetchTimer =
-                        setInterval(() => this._prefetchTick(), 2000);
                 },
                 // Snapshot of everything native debugging needs to know.
                 diag() {
@@ -581,7 +398,6 @@ enum ReelsUserScript {
                         const flush = () => {
                             this._mutedApplyQueued = false;
                             this.applyMuted();
-                            this._resumePendingScroll();
                             if (this._reelMode) {
                                 this._markBottomNavigation();
                                 this._markReelFeed();
@@ -613,9 +429,6 @@ enum ReelsUserScript {
                     } catch (e) {}
                 }
             };
-            window.__reelsbar._pendingScrollDirection =
-                Number(sessionStorage.getItem('reelsbarPendingScroll')) || 0;
-            sessionStorage.removeItem('reelsbarPendingScroll');
             window.__reelsbar.applyMuted();
             window.__reelsbar.observe();
             // Restore the persisted reel-mode choice (default on) instead of
@@ -626,10 +439,8 @@ enum ReelsUserScript {
             } catch (e) {
                 window.__reelsbar.setReelMode(true);
             }
-            window.__reelsbar._startPrefetchLoop();
             window.__reelsbar.postEditing();
             window.__reelsbar.postRoute();
-            setTimeout(() => window.__reelsbar._resumePendingScroll(), 500);
             window.addEventListener('resize', () => {
                 if (window.__reelsbar._reelMode) {
                     window.__reelsbar._markBottomNavigation();
