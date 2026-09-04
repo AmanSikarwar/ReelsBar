@@ -48,7 +48,17 @@ final class AppModel {
     }
 
     func handleLikeKey() {
-        runJS("window.__reelsbar && window.__reelsbar.handleLikeKey()")
+        // Double-press arm/confirm (see _likeKeyAction): surface the result
+        // so arm vs like vs unlike vs missing-control is diagnosable.
+        webView?.evaluateJavaScript(
+            "window.__reelsbar && window.__reelsbar.handleLikeKey()"
+        ) { result, error in
+            if let error {
+                print("[ReelsBar] like error: \(error.localizedDescription)")
+            } else {
+                print("[ReelsBar] like key: \(result ?? "nil")")
+            }
+        }
     }
 
     func toggleAutoScroll() {
