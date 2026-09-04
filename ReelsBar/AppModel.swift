@@ -45,11 +45,13 @@ final class AppModel {
     func scrollNext() {
         // Manual advancement restarts the stall window.
         lastVideoEndedAt = Date()
+        print("[ReelsBar] scroll next (tab=\(isReelsTab) active=\(isPanelActive))")
         runJS("window.__reelsbar && window.__reelsbar.scrollNext()")
     }
 
     func scrollPrev() {
         lastVideoEndedAt = Date()
+        print("[ReelsBar] scroll prev (tab=\(isReelsTab) active=\(isPanelActive))")
         runJS("window.__reelsbar && window.__reelsbar.scrollPrev()")
     }
 
@@ -82,6 +84,7 @@ final class AppModel {
     }
 
     func setReelsTab(_ isReels: Bool) {
+        print("[ReelsBar] route reels=\(isReels)")
         isReelsTab = isReels
         setReelMode(isReels)
     }

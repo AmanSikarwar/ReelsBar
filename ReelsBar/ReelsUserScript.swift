@@ -265,7 +265,10 @@ enum ReelsUserScript {
                     this._pendingLike = null;
                     const videos = this._videos();
                     const current = this._activeVideo(videos);
-                    if (!current) return;
+                    if (!current) {
+                        console.log('[reelsbar] scroll ignored: no active video, v=' + videos.length);
+                        return;
+                    }
                     const feed = this._scrollParent(current);
                     // Document-scrolled layout (overflow visible everywhere,
                     // scrollingElement does the scrolling): _reelItem would
