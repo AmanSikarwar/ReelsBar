@@ -183,14 +183,70 @@ enum ReelsUserScript {
                     if (!visible) return;
                     if (visible.paused) visible.play().catch(() => {}); else visible.pause();
                 },
-                // Wheel/keyboard actuation is a synthetic finger swipe so
-                // Instagram's own gesture handlers move, snap, and load
-                // reels natively. No scroll-position math on our side.
+                // Reel advance is an *instant* position jump to the adjacent
+                // video's top, driven by live geometry. Instant (never
+                // smooth): Instagram re-mounts videos mid-scroll, which
+                // aborts smooth animations and strands the page between
+                // reels. Synthetic touch swipes were tried and removed —
+                // the page only advances on trusted (native) scrolling.
                 scrollNext() {
-                    this._swipe(1);
+                    this._jump(1);
                 },
                 scrollPrev() {
-                    this._swipe(-1);
+                    this._jump(-1);
+                },
+                _jump(direction) {
+                    if (this._jumping) return;
+                    this._pendingLike = null;
+                    const videos = this._videos();
+                    const current = this._activeVideo(videos);
+                    if (!current) {
+                        console.log('[reelsbar] jump: no active video, v=' + videos.length);
+                        return;
+                    }
+                    const here = current.getBoundingClientRect();
+                    const center = here.top + here.height / 2;
+                    const target = videos
+                        .filter(video => {
+                            const rect = video.getBoundingClientRect();
+                            const vc = rect.top + rect.height / 2;
+                            return direction > 0 ? vc > center + 1 : vc < center - 1;
+                        })
+                        .sort((a, b) => {
+                            const da = Math.abs(a.getBoundingClientRect().top
+                                + a.getBoundingClientRect().height / 2 - center);
+                            const db = Math.abs(b.getBoundingClientRect().top
+                                + b.getBoundingClientRect().height / 2 - center);
+                            return da - db;
+                        })[0];
+                    if (!target) {
+                        console.log('[reelsbar] jump: no adjacent video dir=' + direction);
+                        return;
+                    }
+                    this._jumping = true;
+                    const snap = () => {
+                        if (!target.isConnected) return;
+                        const t = target.getBoundingClientRect();
+                        const feed = this._scrollParent(target);
+                        if (feed === document.scrollingElement) {
+                            window.scrollTo(0, window.scrollY + t.top);
+                        } else {
+                            feed.scrollTop += t.top - feed.getBoundingClientRect().top;
+                        }
+                    };
+                    snap();
+                    console.log('[reelsbar] jump dir=' + direction);
+                    // Verify once layout settles: if a re-mount shifted us
+                    // and the same video still dominates, snap again.
+                    setTimeout(() => {
+                        try {
+                            if (this._activeVideo() === current && target.isConnected) {
+                                snap();
+                                console.log('[reelsbar] jump corrected dir=' + direction);
+                            }
+                        } catch (e) {}
+                        this._jumping = false;
+                    }, 150);
                 },
                 _videos() {
                     return [...document.querySelectorAll('video')]
@@ -225,83 +281,6 @@ enum ReelsUserScript {
                         item = item.parentElement;
                     }
                     return item?.parentElement === feed ? item : video;
-                },
-                // Finger-swipe actuation: one call = one reel in `direction`
-                // (1 = next, -1 = previous). Dispatches PointerEvents just
-                // before their TouchEvent counterpart (mirroring real input
-                // order) so the page responds regardless of which API its
-                // handlers listen to. The start target receives the whole
-                // sequence, like implicit capture on a real swipe.
-                // NOTE: synthetic events are untrusted, so they never drive
-                // *native* scrolling themselves — movement comes from the
-                // page's own gesture handlers, which is exactly what we want.
-                _swipe(direction) {
-                    if (this._swiping) return;
-                    this._pendingLike = null;
-                    if (typeof Touch === 'undefined' || typeof TouchEvent === 'undefined') {
-                        console.log('[reelsbar] swipe: touch APIs unavailable');
-                        return;
-                    }
-                    try {
-                        const w = window.innerWidth, h = window.innerHeight;
-                        const x = Math.round(w / 2);
-                        // Finger travels opposite the content: next reel =
-                        // finger moves up.
-                        const yStart = Math.round(direction > 0 ? h * 0.72 : h * 0.28);
-                        const yEnd = Math.round(direction > 0 ? h * 0.28 : h * 0.72);
-                        const target = document.elementFromPoint(x, yStart) || document.body;
-                        const id = Date.now() % 100000;
-                        const mkTouch = (y) => new Touch({
-                            identifier: id, target,
-                            clientX: x, clientY: Math.round(y),
-                            radiusX: 2, radiusY: 2,
-                            rotationAngle: 0, force: 1 });
-                        const fireTouch = (type, y, active) => {
-                            const t = mkTouch(y);
-                            target.dispatchEvent(new TouchEvent(type, {
-                                bubbles: true, cancelable: true, view: window,
-                                touches: active ? [t] : [],
-                                targetTouches: active ? [t] : [],
-                                changedTouches: [t] }));
-                        };
-                        const firePointer = (type, y, active) => {
-                            if (typeof PointerEvent === 'undefined') return;
-                            target.dispatchEvent(new PointerEvent(type, {
-                                bubbles: true, cancelable: true, view: window,
-                                pointerId: id, pointerType: 'touch',
-                                isPrimary: true,
-                                clientX: x, clientY: Math.round(y),
-                                width: 2, height: 2,
-                                pressure: active ? 0.5 : 0,
-                                buttons: active ? 1 : 0 }));
-                        };
-                        const phase = (touchType, pointerType, y, active) => {
-                            firePointer(pointerType, y, active);
-                            fireTouch(touchType, y, active);
-                        };
-                        this._swiping = true;
-                        phase('touchstart', 'pointerdown', yStart, true);
-                        const steps = 12;
-                        const stride = (yStart - yEnd) / steps;
-                        let i = 0;
-                        const timer = setInterval(() => {
-                            i += 1;
-                            if (i >= steps) {
-                                clearInterval(timer);
-                                phase('touchmove', 'pointermove', yEnd, true);
-                                phase('touchend', 'pointerup', yEnd, false);
-                                console.log('[reelsbar] swipe done dir=' + direction);
-                                // Hold the lock briefly so momentum from the
-                                // originating wheel gesture can't double-fire.
-                                setTimeout(() => { this._swiping = false; }, 500);
-                            } else {
-                                phase('touchmove', 'pointermove', yStart - stride * i, true);
-                            }
-                        }, 16);
-                    } catch (err) {
-                        this._swiping = false;
-                        console.log('[reelsbar] swipe failed: ' + String(err));
-                    }
                 },
                 // Snapshot of everything native debugging needs to know.
                 diag() {
