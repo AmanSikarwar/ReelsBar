@@ -543,14 +543,26 @@ enum ReelsUserScript {
                     return action;
                 },
                 // Keep newly-attached video elements in the current mute state.
+                // Throttled: Instagram mutates constantly during playback, so
+                // applying on every mutation would churn CPU.
                 observe() {
                     if (this._observer) return;
                     this._observer = new MutationObserver(() => {
-                        this.applyMuted();
-                        this._resumePendingScroll();
-                        if (this._reelMode) {
-                            this._markBottomNavigation();
-                            this._markReelFeed();
+                        if (this._mutedApplyQueued) return;
+                        this._mutedApplyQueued = true;
+                        const flush = () => {
+                            this._mutedApplyQueued = false;
+                            this.applyMuted();
+                            this._resumePendingScroll();
+                            if (this._reelMode) {
+                                this._markBottomNavigation();
+                                this._markReelFeed();
+                            }
+                        };
+                        if (typeof requestAnimationFrame !== 'undefined') {
+                            requestAnimationFrame(flush);
+                        } else {
+                            setTimeout(flush, 100);
                         }
                     });
                     this._observer.observe(document.body, { childList: true, subtree: true });
@@ -617,11 +629,14 @@ enum ReelsUserScript {
                 () => window.__reelsbar.postEditing(), true);
 
             // Forward page console output to native for diagnostics.
+            // Filtered to our own prefix: Instagram logs verbosely and
+            // would otherwise flood the script-message bridge.
             const nativeLog = (...args) => {
                 const text = args.map(a => {
                     try { return typeof a === 'object' ? JSON.stringify(a) : String(a); }
                     catch (e) { return '?'; }
                 }).join(' ').slice(0, 500);
+                if (!text.includes('[reelsbar]')) return;
                 try {
                     window.webkit.messageHandlers.reelsbar.postMessage({ type: 'log', value: text });
                 } catch (e) {}
