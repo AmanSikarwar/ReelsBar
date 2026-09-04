@@ -201,10 +201,40 @@ enum ReelsUserScript {
                 // reels. Synthetic touch swipes were tried and removed —
                 // the page only advances on trusted (native) scrolling.
                 scrollNext() {
-                    this._jump(1);
+                    if (!this._goNav(1)) this._jump(1);
                 },
                 scrollPrev() {
-                    this._jump(-1);
+                    if (!this._goNav(-1)) this._jump(-1);
+                },
+                // Instagram's own pager: the "Reels navigation controls"
+                // toolbar (up/down chevrons). Clicking it runs their native
+                // advance path, so it can't fight our scrolls. Falls back
+                // to geometry jumps when the toolbar isn't rendered.
+                _navButton(direction) {
+                    const toolbar = document.querySelector(
+                        '[aria-label="Reels navigation controls"]');
+                    if (!toolbar) return null;
+                    const btns = [...toolbar.querySelectorAll('button, [role="button"]')]
+                        .filter(b => b.getBoundingClientRect().height > 0);
+                    if (!btns.length) return null;
+                    const named = (re) => btns.find(b => re.test(
+                        ((b.getAttribute('aria-label') || '') + ' '
+                            + (b.textContent || '')).toLowerCase()));
+                    if (direction > 0) {
+                        return named(/next|down/) || btns.sort((a, b) =>
+                            a.getBoundingClientRect().top - b.getBoundingClientRect().top
+                        )[btns.length - 1];
+                    }
+                    return named(/previous|prev|back|up/) || btns.sort((a, b) =>
+                        a.getBoundingClientRect().top - b.getBoundingClientRect().top
+                    )[0];
+                },
+                _goNav(direction) {
+                    const btn = this._navButton(direction);
+                    if (!btn) return false;
+                    btn.click();
+                    console.log('[reelsbar] nav click dir=' + direction);
+                    return true;
                 },
                 _jump(direction) {
                     if (this._jumping) return;
