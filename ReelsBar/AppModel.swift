@@ -7,12 +7,19 @@ final class AppModel {
     static let panelSize = CGSize(width: 375, height: 812)
     static let reelSize = CGSize(width: 375, height: 667)
 
+    /// Single source for the popover/panel mapping so AppDelegate and
+    /// ReelsBarPanel cannot drift apart.
+    static func contentSize(forReelMode reelMode: Bool) -> CGSize {
+        reelMode ? reelSize : panelSize
+    }
+
     var isMuted = true
     var isAutoScrollActive = false
     var isPanelActive = false
     var isReelsTab = false
     var isReelMode = true
     var reelModeDidChange: ((Bool) -> Void)?
+    private var lastNotifiedReelMode: Bool?
     /// Mirrors DOM focus state so the key monitor can guard synchronously.
     var isPageEditing = false
 
@@ -109,9 +116,18 @@ final class AppModel {
     }
 
     private func setReelMode(_ enabled: Bool) {
-        guard enabled != isReelMode else { return }
+        guard enabled != isReelMode else {
+            // State unchanged but the observer may never have been told
+            // (e.g. popover recreated); sync it without spamming resizes.
+            if lastNotifiedReelMode != isReelMode {
+                lastNotifiedReelMode = isReelMode
+                reelModeDidChange?(isReelMode)
+            }
+            return
+        }
         isReelMode = enabled
         runJS("window.__reelsbar && window.__reelsbar.setReelMode(\(enabled))")
+        lastNotifiedReelMode = enabled
         reelModeDidChange?(enabled)
     }
 
@@ -119,6 +135,10 @@ final class AppModel {
     /// a fresh page context can't desync from native state.
     func enforceReelModePolicy() {
         runJS("window.__reelsbar && window.__reelsbar.setReelMode(\(isReelMode))")
+        // Notify only on actual size change; unconditional callbacks caused
+        // popover flicker on every navigation/activation.
+        guard lastNotifiedReelMode != isReelMode else { return }
+        lastNotifiedReelMode = isReelMode
         reelModeDidChange?(isReelMode)
     }
 

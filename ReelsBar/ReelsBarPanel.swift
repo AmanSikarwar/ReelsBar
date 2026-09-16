@@ -35,8 +35,8 @@ struct ReelsBarPanel: View {
             }
         }
         .frame(
-            width: appModel.isReelMode ? AppModel.reelSize.width : AppModel.panelSize.width,
-            height: appModel.isReelMode ? AppModel.reelSize.height : AppModel.panelSize.height
+            width: AppModel.contentSize(forReelMode: appModel.isReelMode).width,
+            height: AppModel.contentSize(forReelMode: appModel.isReelMode).height
         )
         .ignoresSafeArea()
     }
