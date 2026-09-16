@@ -292,6 +292,24 @@ enum ReelsUserScript {
                     setTimeout(() => { this._jumping = false; }, 800);
                     return true;
                 },
+                // Compact stall diagnostics: videos in DOM, active index,
+                // chosen feed, and scroll position vs max. Distinguishes a
+                // starved loader (top≈max, nothing appended) from snap
+                // pinning or a wrong container (room remains but no move).
+                _feedStats() {
+                    const videos = this._videos();
+                    const cur = this._activeVideo(videos);
+                    const feed = cur ? this._scrollParent(cur) : null;
+                    const isDoc = !feed || feed === document.scrollingElement;
+                    const top = isDoc ? window.scrollY : (feed ? feed.scrollTop : -1);
+                    const max = isDoc
+                        ? (document.scrollingElement
+                            ? document.scrollingElement.scrollHeight - window.innerHeight : -1)
+                        : (feed ? feed.scrollHeight - feed.clientHeight : -1);
+                    return 'v=' + videos.length + ' idx=' + (cur ? videos.indexOf(cur) : -1)
+                        + ' feed=' + (isDoc ? 'DOC' : String(feed && feed.className).slice(0, 20))
+                        + ' top=' + Math.round(top) + ' max=' + Math.round(max);
+                },
                 _jump(direction) {
                     if (this._jumping) return;
                     this._pendingLike = null;
@@ -317,7 +335,8 @@ enum ReelsUserScript {
                             return da - db;
                         })[0];
                     if (!target) {
-                        console.log('[reelsbar] jump: no adjacent video dir=' + direction);
+                        console.log('[reelsbar] jump: no adjacent video dir=' + direction
+                            + ' ' + this._feedStats());
                         return;
                     }
                     this._jumping = true;
@@ -452,6 +471,7 @@ enum ReelsUserScript {
                     return JSON.stringify({
                         url: location.href,
                         viewport: window.innerWidth + 'x' + window.innerHeight,
+                        feedStats: this._feedStats(),
                         documentScroller: info(document.scrollingElement),
                         scrollerDivs: scrollers,
                         chosenFeed: info(this._scrollParent(visible)),
