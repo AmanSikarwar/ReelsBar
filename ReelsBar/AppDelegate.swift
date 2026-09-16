@@ -1,11 +1,12 @@
 import SwiftUI
 
 @MainActor
-final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
+final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate, NSMenuDelegate {
     private let appModel = AppModel()
     private let popover = NSPopover()
     private var statusItem: NSStatusItem?
     private var hotkeyManager: HotkeyManager?
+    private var statusMenu: NSMenu?
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         let statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.squareLength)
@@ -56,6 +57,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
 
     private func showStatusMenu() {
         let menu = NSMenu()
+        menu.delegate = self
         let toggleTitle = popover.isShown ? "Hide ReelsBar" : "Show ReelsBar"
         let toggleItem = NSMenuItem(title: toggleTitle, action: #selector(togglePopover), keyEquivalent: "")
         toggleItem.target = self
@@ -63,10 +65,21 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
         menu.addItem(.separator())
         let quitItem = NSMenuItem(title: "Quit ReelsBar", action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q")
         menu.addItem(quitItem)
+        // Retain until menuDidClose: clearing synchronously after
+        // performClick races menu presentation on some macOS versions.
+        statusMenu = menu
         statusItem?.menu = menu
         statusItem?.button?.performClick(nil)
+    }
+
+    func menuDidClose(_ menu: NSMenu) {
         // Detach so left-click toggles again instead of reopening the menu.
-        statusItem?.menu = nil
+        if statusMenu === menu {
+            if statusItem?.menu === menu {
+                statusItem?.menu = nil
+            }
+            statusMenu = nil
+        }
     }
 
     private func showHotkeyFailureAlert() {
