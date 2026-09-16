@@ -164,7 +164,11 @@ final class AppModel {
         let timer = Timer(timeInterval: Self.autoScrollFallbackInterval, repeats: true) { [weak self] _ in
             Task { @MainActor in
                 guard let self, self.isAutoScrollActive, self.isPanelActive else { return }
-                let stalled = self.lastVideoEndedAt.map { Date().timeIntervalSince($0) > Self.autoScrollFallbackInterval } ?? true
+                // Tolerance for RunLoop drift + MainActor hop: an exact `>`
+                // check can read 29.99s and skip a whole 30s cycle.
+                let stalled = self.lastVideoEndedAt.map {
+                    Date().timeIntervalSince($0) >= Self.autoScrollFallbackInterval - 0.5
+                } ?? true
                 if stalled { self.scrollNext() }
             }
         }
