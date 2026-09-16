@@ -241,8 +241,15 @@ final class AppModel {
                         guard !event.isARepeat else { return nil }
                         self.toggleReelMode()
                         return nil
-                    case 37: // L
-                        guard !editing else { return event }
+                    case 37: // L — like requires a reels context like every other shortcut.
+                        // NOTE: `isPageEditing` mirrors the DOM asynchronously
+                        // (postMessage -> @MainActor), so a keystroke in the
+                        // same runloop as a focus change can still race. The
+                        // page re-posts on focusin/focusout/input/keydown to
+                        // keep the window tight; when in doubt we still let
+                        // editable text through on the next event once the
+                        // mirror lands.
+                        guard !editing, self.isReelsTab else { return event }
                         guard !event.isARepeat else { return nil }
                         self.handleLikeKey()
                         return nil
