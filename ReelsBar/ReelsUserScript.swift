@@ -128,12 +128,16 @@ enum ReelsUserScript {
                 _markBottomNavigation() {
                     const semantic = 'nav, footer, [role="navigation"], [role="tablist"], '
                         + '[aria-label*="navigation" i], [aria-label*="menu" i]';
-                    const bottom = window.innerHeight - 2;
+                    // Tolerant of floating bars, safe-area gaps, and
+                    // scrollbars: 8px from the bottom and 80% width still
+                    // count as bottom-anchored.
+                    const bottom = window.innerHeight - 8;
+                    const minWidth = window.innerWidth * 0.8;
                     document.querySelectorAll('.reelsbar-bottom-nav').forEach(element =>
                         element.classList.remove('reelsbar-bottom-nav'));
                     const isBottomBar = (element) => {
                         const rect = element.getBoundingClientRect();
-                        return rect.width >= window.innerWidth * 0.85
+                        return rect.width >= minWidth
                             && rect.height >= 40 && rect.height <= 100
                             && rect.top >= window.innerHeight * 0.65
                             && rect.bottom >= bottom;
@@ -141,7 +145,7 @@ enum ReelsUserScript {
                     const markBarAndContainer = (element) => {
                         for (let current = element; current; current = current.parentElement) {
                             const rect = current.getBoundingClientRect();
-                            if (rect.width < window.innerWidth * 0.85
+                            if (rect.width < minWidth
                                 || rect.height < 40 || rect.height > 120
                                 || rect.top < window.innerHeight * 0.65
                                 || rect.bottom < bottom) break;
