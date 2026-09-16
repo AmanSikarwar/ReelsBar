@@ -227,12 +227,14 @@ final class AppModel {
                         print("[ReelsBar] key \(event.keyCode) editing=\(editing)")
                     }
                     switch event.keyCode {
-                    case 125: // Down — next reel
+                    case 125: // Down — next reel (discrete; holding must not spam the bridge)
                         guard !editing, self.isReelsTab else { return event }
+                        guard !event.isARepeat else { return nil }
                         self.scrollNext()
                         return nil
-                    case 126: // Up — previous reel
+                    case 126: // Up — previous reel (discrete; holding must not spam the bridge)
                         guard !editing, self.isReelsTab else { return event }
+                        guard !event.isARepeat else { return nil }
                         self.scrollPrev()
                         return nil
                     case 49: // Space — play/pause (swallow the page's space-scroll)

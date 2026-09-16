@@ -240,8 +240,32 @@ enum ReelsUserScript {
                     if (!btn) return false;
                     this._jumping = true;
                     this._pendingLike = null;
+                    const beforeVideo = this._activeVideo();
+                    const beforeFeed = beforeVideo ? this._scrollParent(beforeVideo) : null;
+                    const beforeIsDoc = !beforeFeed || beforeFeed === document.scrollingElement;
+                    const posBefore = beforeIsDoc ? window.scrollY : (beforeFeed ? beforeFeed.scrollTop : window.scrollY);
+                    const keyBefore = this._reelKey ? this._reelKey(beforeVideo) : null;
                     btn.click();
                     console.log('[reelsbar] nav click dir=' + direction);
+                    // Verify the toolbar click actually moved the feed; a
+                    // hidden/off-screen toolbar still has size but its click
+                    // is a no-op. Fall back to a geometry jump instead of
+                    // swallowing the keypress behind the lock.
+                    setTimeout(() => {
+                        try {
+                            const cur = this._activeVideo();
+                            const feed = cur ? this._scrollParent(cur) : beforeFeed;
+                            const isDoc = !feed || feed === document.scrollingElement;
+                            const posAfter = isDoc ? window.scrollY : (feed ? feed.scrollTop : posBefore);
+                            const keyAfter = this._reelKey ? this._reelKey(cur) : null;
+                            if (Math.abs(posAfter - posBefore) < 2 && keyAfter === keyBefore) {
+                                this._jumping = false;
+                                console.log('[reelsbar] nav click no-op, falling back dir=' + direction);
+                                this._jump(direction);
+                                return;
+                            }
+                        } catch (e) {}
+                    }, 350);
                     setTimeout(() => { this._jumping = false; }, 800);
                     return true;
                 },
