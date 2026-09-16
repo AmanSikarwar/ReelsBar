@@ -142,7 +142,14 @@ final class AppModel {
     func enforceDefaultAudioPolicy() {
         isMuted = true
         runJS("window.__reelsbar && window.__reelsbar.setMuted(true)")
+        enforceAutoScrollPolicy()
         enforceReelModePolicy()
+    }
+
+    /// Re-assert the native auto-scroll flag so a fresh page context
+    /// (which resets `_autoScroll` to false) cannot desync after reloads.
+    func enforceAutoScrollPolicy() {
+        runJS("window.__reelsbar && window.__reelsbar.setAutoScroll(\(isAutoScrollActive))")
     }
 
     /// Pause playback, silence audio, and suspend background work while hidden.
@@ -162,6 +169,7 @@ final class AppModel {
         isPanelActive = true
         print("[ReelsBar] panel activated")
         runJS("window.__reelsbar && (window.__reelsbar.setMuted(\(isMuted)), window.__reelsbar.resumeActive())")
+        enforceAutoScrollPolicy()
         enforceReelModePolicy()
         resumeAutoScrollTimer()
         startAudioWatchdog()

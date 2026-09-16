@@ -86,6 +86,9 @@ enum ReelsUserScript {
                 _autoScroll: false,
                 setAutoScroll(on) {
                     this._autoScroll = !!on;
+                    try {
+                        sessionStorage.setItem('reelsbarAutoScroll', this._autoScroll ? '1' : '0');
+                    } catch (e) {}
                     if (this._autoScroll) this._watchVideoEnds();
                 },
                 _reelMode: true,
@@ -534,6 +537,17 @@ enum ReelsUserScript {
             } catch (e) {
                 window.__reelsbar.setReelMode(true);
             }
+            // Restore persisted auto-scroll the same way so a fresh JS
+            // context does not silently drop native's active state. Native
+            // re-asserts via setAutoScroll after didFinish as well; both
+            // paths converge on the same sessionStorage value.
+            try {
+                const savedAuto = sessionStorage.getItem('reelsbarAutoScroll');
+                if (savedAuto === '1') {
+                    window.__reelsbar._autoScroll = true;
+                    window.__reelsbar._watchVideoEnds();
+                }
+            } catch (e) {}
             window.__reelsbar.postEditing();
             window.__reelsbar.postRoute();
             window.__reelsbar._trackScroll();
