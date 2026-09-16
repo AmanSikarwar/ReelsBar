@@ -83,14 +83,28 @@ final class AppModel {
         }
     }
 
+    /// Tracks an explicit F toggle so returning to reels doesn't discard it.
+    private var reelModeUserOverride = false
+
     func setReelsTab(_ isReels: Bool) {
         print("[ReelsBar] route reels=\(isReels)")
         isReelsTab = isReels
-        setReelMode(isReels)
+        if isReels {
+            // Entering reels defaults to reel mode, but respect an explicit
+            // prior F choice instead of forcing it back on.
+            if !reelModeUserOverride {
+                setReelMode(true)
+            } else {
+                enforceReelModePolicy()
+            }
+        } else {
+            setReelMode(false)
+        }
     }
 
     func toggleReelMode() {
         guard isReelsTab else { return }
+        reelModeUserOverride = true
         setReelMode(!isReelMode)
     }
 
