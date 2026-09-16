@@ -21,12 +21,21 @@ struct ReelsWebView: NSViewRepresentable {
     @Environment(AppModel.self) private var appModel
 
     func makeNSView(context: Context) -> WKWebView {
+        context.coordinator.appModel = appModel
+        // Reuse the cached view so SwiftUI recreations (e.g. popover
+        // resize, environment change) don't nuke the Instagram session,
+        // scroll position, and bridge state with a fresh load.
+        if let existing = appModel.webView {
+            existing.navigationDelegate = context.coordinator
+            existing.configuration.userContentController.removeScriptMessageHandler(forName: "reelsbar")
+            existing.configuration.userContentController.add(context.coordinator, name: "reelsbar")
+            return existing
+        }
         let config = ReelsWebViewFactory.makeConfiguration()
         config.userContentController.add(context.coordinator, name: "reelsbar")
         let webView = WKWebView(frame: .zero, configuration: config)
         webView.customUserAgent = ReelsWebViewFactory.iPhoneUserAgent
         webView.navigationDelegate = context.coordinator
-        context.coordinator.appModel = appModel
         appModel.webView = webView
         webView.load(URLRequest(url: ReelsWebViewFactory.reelsURL))
         return webView
@@ -34,6 +43,12 @@ struct ReelsWebView: NSViewRepresentable {
 
     func updateNSView(_ webView: WKWebView, context: Context) {
         context.coordinator.appModel = appModel
+        // Keep the delegate/handler pinned to the live coordinator after
+        // SwiftUI updates; otherwise messages route to a stale coordinator
+        // whose weak appModel may already be nil.
+        if webView.navigationDelegate !== context.coordinator {
+            webView.navigationDelegate = context.coordinator
+        }
     }
 
     func makeCoordinator() -> Coordinator {
@@ -50,6 +65,11 @@ struct ReelsWebView: NSViewRepresentable {
 
         func webView(_ webView: WKWebView, didFailProvisionalNavigation navigation: WKNavigation!, withError error: Error) {
             print("[ReelsBar] provisional navigation failed: \(error.localizedDescription)")
+        }
+
+        func webViewWebContentProcessDidTerminate(_ webView: WKWebView) {
+            print("[ReelsBar] content process terminated; reloading")
+            webView.reload()
         }
 
         func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
