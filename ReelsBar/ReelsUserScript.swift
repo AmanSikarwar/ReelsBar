@@ -433,6 +433,21 @@ enum ReelsUserScript {
                     return 'arm';
                 },
                 _pendingLike: null,
+                // Stable reel identity: <video> elements are re-mounted
+                // mid-scroll, so object identity breaks arm->confirm. Prefer
+                // the reel permalink, fall back to the video src, and only
+                // then to element identity.
+                _reelKey(video) {
+                    if (!video) return null;
+                    const article = video.closest('article');
+                    const link = article
+                        ? article.querySelector('a[href*="/reel/"], a[href*="/reels/"], a[href*="/p/"]')
+                        : document.querySelector('a[href*="/reel/"], a[href*="/reels/"], a[href*="/p/"]');
+                    const href = link ? link.getAttribute('href') : null;
+                    if (href) return href;
+                    const src = video.currentSrc || video.src || '';
+                    return src || null;
+                },
                 handleLikeKey() {
                     const video = this._activeVideo();
                     const control = this._likeControl(video);
@@ -440,13 +455,17 @@ enum ReelsUserScript {
 
                     const now = performance.now();
                     const pending = this._pendingLike;
+                    const key = this._reelKey(video);
+                    const sameVideo = key !== null
+                        ? pending?.key === key
+                        : pending?.video === video;
                     const action = this._likeKeyAction(
                         this._likeLabel(control) === 'unlike',
-                        pending?.video === video,
+                        sameVideo,
                         now - (pending?.at ?? now)
                     );
                     if (action === 'arm') {
-                        this._pendingLike = { video, at: now };
+                        this._pendingLike = { key, video, at: now };
                     } else {
                         this._pendingLike = null;
                         control.click();
