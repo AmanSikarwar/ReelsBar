@@ -478,15 +478,33 @@ enum ReelsUserScript {
                 // applying on every mutation would churn CPU.
                 observe() {
                     if (this._observer) return;
+                    this._lastMarkAt = 0;
                     this._observer = new MutationObserver(() => {
                         if (this._mutedApplyQueued) return;
                         this._mutedApplyQueued = true;
                         const flush = () => {
                             this._mutedApplyQueued = false;
-                            this.applyMuted();
-                            if (this._reelMode) {
-                                this._markBottomNavigation();
-                                this._markReelFeed();
+                            // Disconnect while mutating classes: marking
+                            // itself triggers childList mutations, which
+                            // would otherwise reschedule us into a rAF loop.
+                            try { this._observer.disconnect(); } catch (e) {}
+                            try {
+                                this.applyMuted();
+                                const now = Date.now();
+                                // Marking scans the whole DOM with layout
+                                // reads; throttle it while mute (cheap) still
+                                // runs every flush. Skip while hidden.
+                                if (this._reelMode && !document.hidden
+                                    && (now - (this._lastMarkAt || 0) > 1500)) {
+                                    this._lastMarkAt = now;
+                                    this._markBottomNavigation();
+                                    this._markReelFeed();
+                                }
+                            } finally {
+                                try {
+                                    if (document.body) this._observer.observe(
+                                        document.body, { childList: true, subtree: true });
+                                } catch (e) {}
                             }
                         };
                         if (typeof requestAnimationFrame !== 'undefined') {
