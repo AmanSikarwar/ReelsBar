@@ -262,8 +262,8 @@ final class AppModel {
                         guard !event.isARepeat else { return nil }
                         self.togglePlay()
                         return nil
-                    case 46: // M
-                        guard !editing, self.isReelsTab else { return event }
+                    case 46: // M — global: videos (and the watchdog) exist outside reels
+                        guard !editing else { return event }
                         guard !event.isARepeat else { return nil }
                         self.toggleMute()
                         return nil
