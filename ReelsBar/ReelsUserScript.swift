@@ -309,17 +309,35 @@ enum ReelsUserScript {
                         if (isDoc) return dest.getBoundingClientRect().top;
                         return dest.getBoundingClientRect().top - feed.getBoundingClientRect().top;
                     };
+                    // Save/restore inline scroll-behavior: forcing `auto` must
+                    // not permanently override the page's smooth scrolling.
+                    const overridden = [];
+                    const forceInstant = () => {
+                        [document.documentElement, document.body, feed].forEach(el => {
+                            if (el && el.style && !overridden.some(o => o.el === el)) {
+                                overridden.push({ el,
+                                    value: el.style.getPropertyValue('scroll-behavior'),
+                                    priority: el.style.getPropertyPriority('scroll-behavior') });
+                                el.style.setProperty('scroll-behavior', 'auto', 'important');
+                            }
+                        });
+                    };
+                    const restoreBehavior = () => {
+                        overridden.forEach(({ el, value, priority }) => {
+                            try {
+                                if (!value) el.style.removeProperty('scroll-behavior');
+                                else el.style.setProperty('scroll-behavior', value, priority);
+                            } catch (e) {}
+                        });
+                        overridden.length = 0;
+                    };
                     const correct = () => {
                         const r = residual();
                         if (r === null || Math.abs(r) <= 2) return true;
                         // Force truly instant corrections: page CSS may set
                         // scroll-behavior:smooth, turning them into
                         // abortable animations.
-                        [document.documentElement, document.body, feed].forEach(el => {
-                            if (el && el.style) {
-                                el.style.setProperty('scroll-behavior', 'auto', 'important');
-                            }
-                        });
+                        forceInstant();
                         if (isDoc) window.scrollTo(0, window.scrollY + r);
                         else feed.scrollTop += r;
                         return false;
@@ -350,12 +368,14 @@ enum ReelsUserScript {
                             } catch (e) { settled = true; }
                             if (settled || rounds > 4) {
                                 clearInterval(timer);
+                                restoreBehavior();
                                 this._jumping = false;
                                 console.log('[reelsbar] jump settled dir=' + direction);
                             }
                         }
                         if (polls > 40) {
                             clearInterval(timer);
+                            restoreBehavior();
                             this._jumping = false;
                         }
                     }, 80);
