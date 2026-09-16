@@ -554,8 +554,14 @@ enum ReelsUserScript {
                     }, 800);
                 },
                 _reelsRoute: null,
-                postRoute() {                    const path = location.pathname;
-                    const reels = path === '/reels' || path.startsWith('/reels/');
+                postRoute() {
+                    const path = location.pathname;
+                    // Feed, single-reel permalinks, and inline post views all
+                    // host a reel player; without them arrows/mute/like stay
+                    // disabled while watching a reel.
+                    const reels = path === '/reels' || path.startsWith('/reels/')
+                        || path === '/reel' || path.startsWith('/reel/')
+                        || path.startsWith('/p/');
                     if (reels === this._reelsRoute) return;
                     this._reelsRoute = reels;
                     try {
