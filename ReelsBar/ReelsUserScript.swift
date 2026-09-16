@@ -33,6 +33,16 @@ enum ReelsUserScript {
         scroll-snap-align: start !important;
     }
 
+    /* Document-scrolled layout: the viewport (html) is the scroller, so
+       snap-type belongs there and alignment on the marked reel item. */
+    html.reelsbar-reel-mode.reelsbar-doc-feed {
+        scroll-snap-type: y mandatory !important;
+    }
+
+    html.reelsbar-reel-mode .reelsbar-reel-item {
+        scroll-snap-align: start !important;
+    }
+
     html.reelsbar-reel-mode .reelsbar-reel-feed {
         height: 100% !important;
         min-height: 100% !important;
@@ -107,6 +117,9 @@ enum ReelsUserScript {
                             element.classList.remove('reelsbar-bottom-nav'));
                         document.querySelectorAll('.reelsbar-reel-feed').forEach(element =>
                             element.classList.remove('reelsbar-reel-feed'));
+                        document.querySelectorAll('.reelsbar-reel-item').forEach(element =>
+                            element.classList.remove('reelsbar-reel-item'));
+                        document.documentElement.classList.remove('reelsbar-doc-feed');
                     }
                 },
                 _markReelFeed() {
@@ -116,13 +129,19 @@ enum ReelsUserScript {
                     if (!feed) return;
                     document.querySelectorAll('.reelsbar-reel-feed').forEach(element =>
                         element.classList.remove('reelsbar-reel-feed'));
+                    document.querySelectorAll('.reelsbar-reel-item').forEach(element =>
+                        element.classList.remove('reelsbar-reel-item'));
                     if (feed === document.scrollingElement) {
-                        // Document-scrolled layout: size the active reel item
-                        // itself so the 9:16 CSS still has a target.
+                        // Document-scrolled layout: the viewport is the
+                        // scroller (snap-type on html), alignment on the
+                        // reel item itself. Marking the item as a feed
+                        // applied scroller CSS to a non-scroller.
                         const item = video.closest('article') || this._reelItem(video, document.body);
-                        if (item) item.classList.add('reelsbar-reel-feed');
+                        document.documentElement.classList.add('reelsbar-doc-feed');
+                        if (item) item.classList.add('reelsbar-reel-item');
                         return;
                     }
+                    document.documentElement.classList.remove('reelsbar-doc-feed');
                     feed.classList.add('reelsbar-reel-feed');
                 },
                 _markBottomNavigation() {
