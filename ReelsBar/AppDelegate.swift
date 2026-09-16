@@ -100,4 +100,19 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
     func popoverDidClose(_ notification: Notification) {
         appModel.handlePanelDeactivated()
     }
+
+    func applicationDidResignActive(_ notification: Notification) {
+        // The transient popover may still be shown while the app loses key
+        // status; pause media/timers immediately instead of waiting for
+        // popoverDidClose. Guarded: no-op when already inactive.
+        appModel.handlePanelDeactivated()
+    }
+
+    func applicationDidBecomeActive(_ notification: Notification) {
+        // Resume only if the panel is still visible; a closed popover must
+        // stay suspended for the battery-friendly idle guarantee.
+        if popover.isShown {
+            appModel.handlePanelActivated()
+        }
+    }
 }
