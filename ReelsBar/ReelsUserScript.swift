@@ -545,38 +545,6 @@ enum ReelsUserScript {
                             { type: 'editing', value: this.isEditing() });
                     } catch (e) {}
                 },
-                // TEMP-TELEMETRY: scroll/load observability. Remove once the
-                // batch-loader trigger is understood.
-                _trackScroll() {
-                    let feed = null;
-                    let lastTop = NaN;
-                    setInterval(() => {
-                        if (document.hidden) return;
-                        const videos = this._videos();
-                        const cur = this._activeVideo(videos);
-                        // (Re)bind to a real feed once content mounts; the
-                        // document is only a fallback, never the target.
-                        const f = cur ? this._scrollParent(cur) : null;
-                        if (f && f !== document.scrollingElement) feed = f;
-                        else if (!feed) feed = f || document.scrollingElement;
-                        const isDoc = feed === document.scrollingElement;
-                        const pos = () => isDoc ? window.scrollY : feed.scrollTop;
-                        const maxPos = () => isDoc
-                            ? document.scrollingElement.scrollHeight - window.innerHeight
-                            : feed.scrollHeight - feed.clientHeight;
-                        const top = pos();
-                        if (top === lastTop) return;
-                        lastTop = top;
-                        const remaining = maxPos() - top;
-                        console.log('[reelsbar] tele top=' + Math.round(top)
-                            + ' max=' + Math.round(maxPos())
-                            + ' v=' + videos.length
-                            + ' vh=' + window.innerHeight
-                            + ' feed=' + (isDoc ? 'DOC' : String(feed.className).slice(0, 12))
-                            + ' activeTop=' + (cur ? Math.round(cur.getBoundingClientRect().top) : 'x')
-                            + (remaining < window.innerHeight * 1.5 ? ' NEAREND' : ''));
-                    }, 800);
-                },
                 _reelsRoute: null,
                 postRoute() {
                     const path = location.pathname;
@@ -617,7 +585,6 @@ enum ReelsUserScript {
             } catch (e) {}
             window.__reelsbar.postEditing();
             window.__reelsbar.postRoute();
-            window.__reelsbar._trackScroll();
             window.addEventListener('resize', () => {
                 if (window.__reelsbar._reelMode) {
                     window.__reelsbar._markBottomNavigation();

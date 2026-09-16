@@ -77,11 +77,13 @@ struct ReelsWebView: NSViewRepresentable {
             appModel?.enforceDefaultAudioPolicy()
             // Dump a diagnostic snapshot once the SPA settles. Coalesced:
             // rapid successive navigations cancel the pending snapshot so
-            // only the latest one evaluates.
+            // only the latest one evaluates. Skipped while hidden so
+            // background loads don't wake the bridge.
             pendingDiagWorkItem?.cancel()
-            let workItem = DispatchWorkItem { [weak webView] in
+            let workItem = DispatchWorkItem { [weak self, weak webView] in
                 Task { @MainActor in
-                    guard let webView else { return }
+                    guard let webView, let self else { return }
+                    guard self.appModel?.isPanelActive == true else { return }
                     webView.evaluateJavaScript("window.__reelsbar ? window.__reelsbar.diag() : 'no-bridge'") { result, error in
                         Task { @MainActor in
                             if let error { print("[ReelsBar] diag error: \(error.localizedDescription)") }
