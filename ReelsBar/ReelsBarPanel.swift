@@ -12,6 +12,7 @@ struct ReelsBarPanel: View {
                     Text(
                         (appModel.diagLine.isEmpty ? "…" : appModel.diagLine)
                             .replacingOccurrences(of: " f=", with: "\nf=")
+                            .replacingOccurrences(of: " dT=", with: "\ndT=")
                     )
                     .font(.system(size: 13, design: .monospaced))
                     .multilineTextAlignment(.center)
