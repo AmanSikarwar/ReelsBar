@@ -133,12 +133,23 @@ enum ReelsUserScript {
                         element.classList.remove('reelsbar-reel-item'));
                     if (feed === document.scrollingElement) {
                         // Document-scrolled layout: the viewport is the
-                        // scroller (snap-type on html), alignment on the
-                        // reel item itself. Marking the item as a feed
-                        // applied scroller CSS to a non-scroller.
-                        const item = video.closest('article') || this._reelItem(video, document.body);
+                        // scroller (snap-type on html). Align EVERY reel
+                        // item, not just the active one: a single moving
+                        // snap point lets flings fly through several reels
+                        // and mandatory snap yanks back to the stale point,
+                        // feeling like the feed is stuck.
                         document.documentElement.classList.add('reelsbar-doc-feed');
-                        if (item) item.classList.add('reelsbar-reel-item');
+                        const items = new Set();
+                        document.querySelectorAll('article').forEach(a => {
+                            if (a.querySelector('video')) items.add(a);
+                        });
+                        if (!items.size) {
+                            this._videos().forEach(v => {
+                                const it = this._reelItem(v, document.body);
+                                if (it) items.add(it);
+                            });
+                        }
+                        items.forEach(it => it.classList.add('reelsbar-reel-item'));
                         return;
                     }
                     document.documentElement.classList.remove('reelsbar-doc-feed');
@@ -227,9 +238,14 @@ enum ReelsUserScript {
                 // reels. Synthetic touch swipes were tried and removed —
                 // the page only advances on trusted (native) scrolling.
                 scrollNext() {
+                    // Refresh snap points synchronously: discrete/auto
+                    // advance can outrun the throttled observer, leaving
+                    // newly appended batches without alignment.
+                    if (this._reelMode) this._markReelFeed();
                     if (!this._goNav(1)) this._jump(1);
                 },
                 scrollPrev() {
+                    if (this._reelMode) this._markReelFeed();
                     if (!this._goNav(-1)) this._jump(-1);
                 },
                 // Instagram's own pager: the "Reels navigation controls"
