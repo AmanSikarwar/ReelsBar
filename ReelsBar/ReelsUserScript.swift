@@ -22,11 +22,13 @@ enum ReelsUserScript {
         display: none !important;
     }
 
-    /* Paging snap: the page's own snap doesn't quantize wheel input, so
-       declare snap points at reel-item tops (narrow form only: container
-       type + direct-children alignment, no competing video-level rules). */
+    /* Paging snap assist: proximity (never mandatory) so a misplaced snap
+       point can tug but never trap scrolling and starve the batch loader.
+       No height forcing on the feed: fixed heights trap wheel input in the
+       wrong box and break the loader's end-of-feed math. Discrete advance
+       (arrows/Auto) doesn't need snap at all — it jumps geometrically. */
     html.reelsbar-reel-mode .reelsbar-reel-feed {
-        scroll-snap-type: y mandatory !important;
+        scroll-snap-type: y proximity !important;
     }
 
     html.reelsbar-reel-mode .reelsbar-reel-feed > * {
@@ -34,20 +36,13 @@ enum ReelsUserScript {
     }
 
     /* Document-scrolled layout: the viewport (html) is the scroller, so
-       snap-type belongs there and alignment on the marked reel item. */
+       snap-type belongs there and alignment on the marked reel items. */
     html.reelsbar-reel-mode.reelsbar-doc-feed {
-        scroll-snap-type: y mandatory !important;
+        scroll-snap-type: y proximity !important;
     }
 
     html.reelsbar-reel-mode .reelsbar-reel-item {
         scroll-snap-align: start !important;
-    }
-
-    html.reelsbar-reel-mode .reelsbar-reel-feed {
-        height: 100% !important;
-        min-height: 100% !important;
-        max-height: 100% !important;
-        padding-bottom: 0 !important;
     }
 
     /* Main column should fill the narrow panel edge to edge */
@@ -322,9 +317,18 @@ enum ReelsUserScript {
                         ? (document.scrollingElement
                             ? document.scrollingElement.scrollHeight - window.innerHeight : -1)
                         : (feed ? feed.scrollHeight - feed.clientHeight : -1);
-                    return 'v=' + videos.length + ' idx=' + (cur ? videos.indexOf(cur) : -1)
-                        + ' feed=' + (isDoc ? 'DOC' : String(feed && feed.className).slice(0, 20))
-                        + ' top=' + Math.round(top) + ' max=' + Math.round(max);
+                    // Compact: the on-screen overlay must fit 375pt.
+                    // dT/dM expose the DOCUMENT scroller: if it has room
+                    // below while the inner feed is maxed, the loader's
+                    // sentinel lives outside our scroller.
+                    const cls = isDoc ? 'DOC'
+                        : String(feed && feed.className).split(' ')[0].slice(0, 12);
+                    const docEl = document.scrollingElement;
+                    const docM = docEl ? docEl.scrollHeight - window.innerHeight : -1;
+                    return 'v=' + videos.length + ' i=' + (cur ? videos.indexOf(cur) : -1)
+                        + ' f=' + cls
+                        + ' t=' + Math.round(top) + ' m=' + Math.round(max)
+                        + ' dT=' + Math.round(window.scrollY) + ' dM=' + Math.round(docM);
                 },
                 _jump(direction) {
                     if (this._jumping) return;
@@ -351,8 +355,40 @@ enum ReelsUserScript {
                             return da - db;
                         })[0];
                     if (!target) {
-                        console.log('[reelsbar] jump: no adjacent video dir=' + direction
-                            + ' ' + this._feedStats());
+                        // End of the loaded feed. Parking exactly at max
+                        // emits no further scroll events, so a near-end
+                        // loader can never fire: back off into the prefetch
+                        // zone and retry once shortly, in case the loader
+                        // appends asynchronously on the events we emit.
+                        const fb = this._scrollParent(current);
+                        const fIsDoc = !fb || fb === document.scrollingElement;
+                        const curP = fIsDoc ? window.scrollY : (fb ? fb.scrollTop : 0);
+                        const curM = fIsDoc
+                            ? (document.scrollingElement
+                                ? document.scrollingElement.scrollHeight - window.innerHeight : 0)
+                            : (fb ? fb.scrollHeight - fb.clientHeight : 0);
+                        if (direction > 0 && curP >= curM - 4) {
+                            const now = Date.now();
+                            console.log('[reelsbar] jump: at end, backing off '
+                                + this._feedStats());
+                            const backoff = Math.min(320, Math.max(64,
+                                Math.round(window.innerHeight * 0.45)));
+                            if (fIsDoc) window.scrollTo(0, Math.max(0, curP - backoff));
+                            else if (fb) fb.scrollTop = Math.max(0, curP - backoff);
+                            if (!this._lastBackoff || now - this._lastBackoff > 5000) {
+                                this._lastBackoff = now;
+                                setTimeout(() => {
+                                    try {
+                                        if (!this._jumping) {
+                                            if (!this._goNav(direction)) this._jump(direction);
+                                        }
+                                    } catch (e) {}
+                                }, 3000);
+                            }
+                        } else {
+                            console.log('[reelsbar] jump: no adjacent video dir=' + direction
+                                + ' ' + this._feedStats());
+                        }
                         return;
                     }
                     this._jumping = true;
@@ -575,41 +611,6 @@ enum ReelsUserScript {
                     }
                     console.log('[reelsbar] like key', action);
                     return action;
-                },
-                // On-screen feed diagnostics (D key): one-line overlay with
-                // mode, route, and _feedStats, refreshed twice a second.
-                // Text-only updates don't trip the childList observer.
-                _statsTimer: null,
-                toggleStats() {
-                    let el = document.getElementById('reelsbar-stats');
-                    if (el) {
-                        el.remove();
-                        if (this._statsTimer) {
-                            clearInterval(this._statsTimer);
-                            this._statsTimer = null;
-                        }
-                        console.log('[reelsbar] stats off');
-                        return 'off';
-                    }
-                    el = document.createElement('div');
-                    el.id = 'reelsbar-stats';
-                    el.style.cssText = 'position:fixed;left:4px;bottom:4px;z-index:2147483647;'
-                        + 'background:rgba(0,0,0,0.75);color:#0f0;font:10px/1.4 monospace;'
-                        + 'padding:4px 6px;border-radius:4px;pointer-events:none;white-space:pre;';
-                    document.body.appendChild(el);
-                    const render = () => {
-                        try {
-                            el.textContent = (this._reelMode ? 'reelmode ' : 'fullmode ')
-                                + (this._reelsRoute ? 'reels ' : 'noroute ')
-                                + this._feedStats();
-                        } catch (e) {}
-                    };
-                    render();
-                    this._statsTimer = setInterval(() => {
-                        if (!document.hidden && el.isConnected) render();
-                    }, 500);
-                    console.log('[reelsbar] stats on');
-                    return 'on';
                 },
                 // Keep newly-attached video elements in the current mute state.
                 // Throttled: Instagram mutates constantly during playback, so

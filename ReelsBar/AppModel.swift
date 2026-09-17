@@ -19,6 +19,10 @@ final class AppModel {
     var isReelsTab = false
     var isReelMode = true
     var reelModeDidChange: ((Bool) -> Void)?
+    /// On-screen feed diagnostics (D key). Rendered natively in the panel
+    /// so page transforms can't displace it.
+    var showDiag = false
+    var diagLine = ""
     private var lastNotifiedReelMode: Bool?
     /// Mirrors DOM focus state so the key monitor can guard synchronously.
     var isPageEditing = false
@@ -54,12 +58,14 @@ final class AppModel {
         lastVideoEndedAt = Date()
         print("[ReelsBar] scroll next (tab=\(isReelsTab) active=\(isPanelActive))")
         runJS("window.__reelsbar && window.__reelsbar.scrollNext()")
+        refreshDiag()
     }
 
     func scrollPrev() {
         lastVideoEndedAt = Date()
         print("[ReelsBar] scroll prev (tab=\(isReelsTab) active=\(isPanelActive))")
         runJS("window.__reelsbar && window.__reelsbar.scrollPrev()")
+        refreshDiag()
     }
 
     func togglePlay() {
@@ -67,9 +73,25 @@ final class AppModel {
     }
 
     /// On-screen feed diagnostics overlay (D). Panel-global like mute so a
-    /// stall can be read off the screen on any page.
+    /// stall can be read off the screen on any page. Rendered natively;
+    /// the value is pulled from the bridge after every advance.
     func toggleStats() {
-        runJS("window.__reelsbar && window.__reelsbar.toggleStats()")
+        showDiag.toggle()
+        if showDiag {
+            diagLine = "…"
+            refreshDiag()
+        }
+    }
+
+    func refreshDiag() {
+        guard showDiag else { return }
+        let prefix = "\(isReelMode ? "RM" : "FM") \(isReelsTab ? "reels" : "noroute") "
+        webView?.evaluateJavaScript("window.__reelsbar ? window.__reelsbar._feedStats() : 'no-bridge'") { [weak self] result, _ in
+            Task { @MainActor in
+                guard let self else { return }
+                self.diagLine = prefix + (result as? String ?? "?")
+            }
+        }
     }
 
     func handleLikeKey() {

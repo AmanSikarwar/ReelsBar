@@ -7,6 +7,24 @@ struct ReelsBarPanel: View {
         ZStack(alignment: .top) {
             ReelsWebView()
 
+            if appModel.showDiag {
+                VStack {
+                    Text(
+                        (appModel.diagLine.isEmpty ? "…" : appModel.diagLine)
+                            .replacingOccurrences(of: " f=", with: "\nf=")
+                    )
+                    .font(.system(size: 13, design: .monospaced))
+                    .multilineTextAlignment(.center)
+                    .foregroundStyle(.green)
+                    .padding(.horizontal, 8)
+                    .padding(.vertical, 5)
+                    .background(.black.opacity(0.85), in: RoundedRectangle(cornerRadius: 6))
+                    .padding(.top, 44)
+                    Spacer()
+                }
+                .frame(maxWidth: .infinity)
+            }
+
             // Mute is global (videos exist outside reels and the watchdog
             // mutes them); the Auto badge stays reels-only.
             VStack(spacing: 6) {
