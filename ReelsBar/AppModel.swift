@@ -66,6 +66,12 @@ final class AppModel {
         runJS("window.__reelsbar && window.__reelsbar.togglePlay()")
     }
 
+    /// On-screen feed diagnostics overlay (D). Panel-global like mute so a
+    /// stall can be read off the screen on any page.
+    func toggleStats() {
+        runJS("window.__reelsbar && window.__reelsbar.toggleStats()")
+    }
+
     func handleLikeKey() {
         // Double-press arm/confirm (see _likeKeyAction): surface the result
         // so arm vs like vs unlike vs missing-control is diagnosable.
@@ -247,7 +253,7 @@ final class AppModel {
                     let flags = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
                     guard !flags.contains(.command), !flags.contains(.option), !flags.contains(.control) else { return event }
                     let editing = self.isPageEditing
-                    if [0, 3, 37, 46, 49, 125, 126].contains(event.keyCode) {
+                    if [0, 2, 3, 37, 46, 49, 125, 126].contains(event.keyCode) {
                         print("[ReelsBar] key \(event.keyCode) editing=\(editing)")
                     }
                     switch event.keyCode {
@@ -280,6 +286,11 @@ final class AppModel {
                         guard !editing, self.isReelsTab else { return event }
                         guard !event.isARepeat else { return nil }
                         self.toggleReelMode()
+                        return nil
+                    case 2: // D — feed stats overlay (diagnostics; panel-global)
+                        guard !editing else { return event }
+                        guard !event.isARepeat else { return nil }
+                        self.toggleStats()
                         return nil
                     case 37: // L — like requires a reels context like every other shortcut.
                         // NOTE: `isPageEditing` mirrors the DOM asynchronously

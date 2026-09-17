@@ -576,6 +576,41 @@ enum ReelsUserScript {
                     console.log('[reelsbar] like key', action);
                     return action;
                 },
+                // On-screen feed diagnostics (D key): one-line overlay with
+                // mode, route, and _feedStats, refreshed twice a second.
+                // Text-only updates don't trip the childList observer.
+                _statsTimer: null,
+                toggleStats() {
+                    let el = document.getElementById('reelsbar-stats');
+                    if (el) {
+                        el.remove();
+                        if (this._statsTimer) {
+                            clearInterval(this._statsTimer);
+                            this._statsTimer = null;
+                        }
+                        console.log('[reelsbar] stats off');
+                        return 'off';
+                    }
+                    el = document.createElement('div');
+                    el.id = 'reelsbar-stats';
+                    el.style.cssText = 'position:fixed;left:4px;bottom:4px;z-index:2147483647;'
+                        + 'background:rgba(0,0,0,0.75);color:#0f0;font:10px/1.4 monospace;'
+                        + 'padding:4px 6px;border-radius:4px;pointer-events:none;white-space:pre;';
+                    document.body.appendChild(el);
+                    const render = () => {
+                        try {
+                            el.textContent = (this._reelMode ? 'reelmode ' : 'fullmode ')
+                                + (this._reelsRoute ? 'reels ' : 'noroute ')
+                                + this._feedStats();
+                        } catch (e) {}
+                    };
+                    render();
+                    this._statsTimer = setInterval(() => {
+                        if (!document.hidden && el.isConnected) render();
+                    }, 500);
+                    console.log('[reelsbar] stats on');
+                    return 'on';
+                },
                 // Keep newly-attached video elements in the current mute state.
                 // Throttled: Instagram mutates constantly during playback, so
                 // applying on every mutation would churn CPU.
